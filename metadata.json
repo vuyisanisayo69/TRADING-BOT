@@ -1,0 +1,6 @@
+{
+  "name": "Apex Trader AI",
+  "description": "Professional AI-assisted day-trading platform featuring multi-timeframe technical indicator analysis, rule-based signal generation, institutional risk management, backtesting, and paper execution.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

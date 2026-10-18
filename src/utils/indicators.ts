@@ -1,0 +1,781 @@
+/**
+ * Apex Trader AI - Technical Indicator Library
+ * Pure mathematical implementations verified against standard TA formulas.
+ * Free of UI dependencies, suitable for node:test and browser execution.
+ */
+
+export interface Candle {
+  time: number; // Unix timestamp in seconds
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface SMMAOutput {
+  values: (number | null)[];
+}
+
+export interface EMAOutput {
+  values: (number | null)[];
+}
+
+export interface SMAOutput {
+  values: (number | null)[];
+}
+
+export interface RSIOutput {
+  values: (number | null)[];
+}
+
+export interface MACDOutput {
+  macd: (number | null)[];
+  signal: (number | null)[];
+  histogram: (number | null)[];
+}
+
+export interface BollingerBandsOutput {
+  upper: (number | null)[];
+  middle: (number | null)[];
+  lower: (number | null)[];
+  bandwidth: (number | null)[];
+}
+
+export interface ATROutput {
+  values: (number | null)[];
+  trueRanges: number[];
+}
+
+export interface ADXOutput {
+  adx: (number | null)[];
+  plusDI: (number | null)[];
+  minusDI: (number | null)[];
+}
+
+export interface StochasticOutput {
+  k: (number | null)[];
+  d: (number | null)[];
+}
+
+export interface PivotPoints {
+  pivot: number;
+  r1: number;
+  r2: number;
+  r3: number;
+  s1: number;
+  s2: number;
+  s3: number;
+}
+
+export interface FibonacciLevels {
+  swingHigh: number;
+  swingLow: number;
+  trend: 'UP' | 'DOWN';
+  levels: {
+    ratio: number;
+    price: number;
+    label: string;
+  }[];
+}
+
+export interface SwingPoint {
+  index: number;
+  candle: Candle;
+  type: 'HIGH' | 'LOW';
+  price: number;
+  structureTag?: 'HH' | 'HL' | 'LH' | 'LL';
+}
+
+export interface MarketStructure {
+  trend: 'BULLISH' | 'BEARISH' | 'RANGING';
+  swingPoints: SwingPoint[];
+  lastBreakout?: {
+    type: 'BULLISH_BOS' | 'BEARISH_BOS' | 'CHOCH';
+    price: number;
+    candleIndex: number;
+  };
+  supportZones: { min: number; max: number; touches: number }[];
+  resistanceZones: { min: number; max: number; touches: number }[];
+}
+
+export interface CandlestickPattern {
+  name: string;
+  type: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  significance: 'HIGH' | 'MEDIUM' | 'LOW';
+  description: string;
+}
+
+// 1. Simple Moving Average (SMA)
+export function calculateSMA(prices: number[], period: number): (number | null)[] {
+  const result: (number | null)[] = [];
+  if (period <= 0 || prices.length === 0) return result;
+
+  let sum = 0;
+  for (let i = 0; i < prices.length; i++) {
+    sum += prices[i];
+    if (i >= period) {
+      sum -= prices[i - period];
+    }
+    if (i >= period - 1) {
+      result.push(sum / period);
+    } else {
+      result.push(null);
+    }
+  }
+  return result;
+}
+
+// 2. Exponential Moving Average (EMA)
+export function calculateEMA(prices: number[], period: number): (number | null)[] {
+  const result: (number | null)[] = [];
+  if (period <= 0 || prices.length === 0) return result;
+  if (prices.length < period) {
+    return prices.map(() => null);
+  }
+
+  const multiplier = 2 / (period + 1);
+  let firstSmaSum = 0;
+
+  for (let i = 0; i < prices.length; i++) {
+    if (i < period - 1) {
+      firstSmaSum += prices[i];
+      result.push(null);
+    } else if (i === period - 1) {
+      firstSmaSum += prices[i];
+      const initialSma = firstSmaSum / period;
+      result.push(initialSma);
+    } else {
+      const prevEma = result[i - 1]!;
+      const currentEma = (prices[i] - prevEma) * multiplier + prevEma;
+      result.push(currentEma);
+    }
+  }
+  return result;
+}
+
+// 3. Smoothed Moving Average (SMMA / Wilder's Moving Average)
+// Formula: SMMA(i) = (SMMA(i-1) * (N - 1) + Price(i)) / N
+export function calculateSMMA(prices: number[], period: number): (number | null)[] {
+  const result: (number | null)[] = [];
+  if (period <= 0 || prices.length === 0) return result;
+  if (prices.length < period) {
+    return prices.map(() => null);
+  }
+
+  let sum = 0;
+  for (let i = 0; i < prices.length; i++) {
+    if (i < period - 1) {
+      sum += prices[i];
+      result.push(null);
+    } else if (i === period - 1) {
+      sum += prices[i];
+      const firstSMMA = sum / period;
+      result.push(firstSMMA);
+    } else {
+      const prevSMMA = result[i - 1]!;
+      const currentSMMA = (prevSMMA * (period - 1) + prices[i]) / period;
+      result.push(currentSMMA);
+    }
+  }
+  return result;
+}
+
+// 4. Relative Strength Index (RSI 14) with Wilder's Smoothing
+export function calculateRSI(prices: number[], period: number = 14): (number | null)[] {
+  const result: (number | null)[] = [];
+  if (prices.length <= period) {
+    return prices.map(() => null);
+  }
+
+  let avgGain = 0;
+  let avgLoss = 0;
+
+  for (let i = 0; i < prices.length; i++) {
+    if (i === 0) {
+      result.push(null);
+      continue;
+    }
+
+    const change = prices[i] - prices[i - 1];
+    const gain = change > 0 ? change : 0;
+    const loss = change < 0 ? Math.abs(change) : 0;
+
+    if (i < period) {
+      avgGain += gain;
+      avgLoss += loss;
+      result.push(null);
+    } else if (i === period) {
+      avgGain += gain;
+      avgLoss += loss;
+      avgGain = avgGain / period;
+      avgLoss = avgLoss / period;
+      if (avgLoss === 0) {
+        result.push(100);
+      } else {
+        const rs = avgGain / avgLoss;
+        result.push(100 - 100 / (1 + rs));
+      }
+    } else {
+      // Wilder's smoothing
+      avgGain = (avgGain * (period - 1) + gain) / period;
+      avgLoss = (avgLoss * (period - 1) + loss) / period;
+
+      if (avgLoss === 0) {
+        result.push(100);
+      } else {
+        const rs = avgGain / avgLoss;
+        result.push(100 - 100 / (1 + rs));
+      }
+    }
+  }
+  return result;
+}
+
+// 5. Moving Average Convergence Divergence (MACD 12/26/9)
+export function calculateMACD(
+  prices: number[],
+  fastPeriod: number = 12,
+  slowPeriod: number = 26,
+  signalPeriod: number = 9
+): MACDOutput {
+  const fastEMA = calculateEMA(prices, fastPeriod);
+  const slowEMA = calculateEMA(prices, slowPeriod);
+
+  const macdLine: (number | null)[] = [];
+  for (let i = 0; i < prices.length; i++) {
+    if (fastEMA[i] === null || slowEMA[i] === null) {
+      macdLine.push(null);
+    } else {
+      macdLine.push(fastEMA[i]! - slowEMA[i]!);
+    }
+  }
+
+  // Calculate signal line on the valid MACD line values
+  const validMacdIndices: number[] = [];
+  const validMacdValues: number[] = [];
+  for (let i = 0; i < macdLine.length; i++) {
+    if (macdLine[i] !== null) {
+      validMacdIndices.push(i);
+      validMacdValues.push(macdLine[i]!);
+    }
+  }
+
+  const validSignal = calculateEMA(validMacdValues, signalPeriod);
+  const signalLine: (number | null)[] = prices.map(() => null);
+  const histogram: (number | null)[] = prices.map(() => null);
+
+  for (let j = 0; j < validSignal.length; j++) {
+    const originalIndex = validMacdIndices[j];
+    signalLine[originalIndex] = validSignal[j];
+    if (validSignal[j] !== null && macdLine[originalIndex] !== null) {
+      histogram[originalIndex] = macdLine[originalIndex]! - validSignal[j]!;
+    }
+  }
+
+  return { macd: macdLine, signal: signalLine, histogram };
+}
+
+// 6. Bollinger Bands (20, 2)
+export function calculateBollingerBands(
+  prices: number[],
+  period: number = 20,
+  stdDevMultiplier: number = 2
+): BollingerBandsOutput {
+  const sma = calculateSMA(prices, period);
+  const upper: (number | null)[] = [];
+  const middle = sma;
+  const lower: (number | null)[] = [];
+  const bandwidth: (number | null)[] = [];
+
+  for (let i = 0; i < prices.length; i++) {
+    if (i < period - 1 || sma[i] === null) {
+      upper.push(null);
+      lower.push(null);
+      bandwidth.push(null);
+      continue;
+    }
+
+    const mean = sma[i]!;
+    let varianceSum = 0;
+    for (let k = i - period + 1; k <= i; k++) {
+      varianceSum += Math.pow(prices[k] - mean, 2);
+    }
+    const stdDev = Math.sqrt(varianceSum / period);
+    const u = mean + stdDevMultiplier * stdDev;
+    const l = mean - stdDevMultiplier * stdDev;
+    upper.push(u);
+    lower.push(l);
+    bandwidth.push(mean !== 0 ? (u - l) / mean : 0);
+  }
+
+  return { upper, middle, lower, bandwidth };
+}
+
+// 7. Average True Range (ATR 14)
+export function calculateATR(candles: Candle[], period: number = 14): ATROutput {
+  const trueRanges: number[] = [];
+  const atrValues: (number | null)[] = [];
+
+  if (candles.length === 0) return { values: [], trueRanges: [] };
+
+  for (let i = 0; i < candles.length; i++) {
+    const current = candles[i];
+    if (i === 0) {
+      const tr = current.high - current.low;
+      trueRanges.push(tr);
+      atrValues.push(null);
+    } else {
+      const prev = candles[i - 1];
+      const tr = Math.max(
+        current.high - current.low,
+        Math.abs(current.high - prev.close),
+        Math.abs(current.low - prev.close)
+      );
+      trueRanges.push(tr);
+
+      if (i < period) {
+        atrValues.push(null);
+      } else if (i === period) {
+        // Initial ATR is SMA of first 'period' true ranges
+        let sum = 0;
+        for (let j = 1; j <= period; j++) {
+          sum += trueRanges[j];
+        }
+        atrValues.push(sum / period);
+      } else {
+        const prevATR = atrValues[i - 1]!;
+        const currentATR = (prevATR * (period - 1) + tr) / period;
+        atrValues.push(currentATR);
+      }
+    }
+  }
+
+  return { values: atrValues, trueRanges };
+}
+
+// 8. Average Directional Index (ADX 14) with +DI and -DI
+export function calculateADX(candles: Candle[], period: number = 14): ADXOutput {
+  const adx: (number | null)[] = candles.map(() => null);
+  const plusDI: (number | null)[] = candles.map(() => null);
+  const minusDI: (number | null)[] = candles.map(() => null);
+
+  if (candles.length <= period * 2) {
+    return { adx, plusDI, minusDI };
+  }
+
+  const { trueRanges } = calculateATR(candles, period);
+  const plusDM: number[] = [0];
+  const minusDM: number[] = [0];
+
+  for (let i = 1; i < candles.length; i++) {
+    const upMove = candles[i].high - candles[i - 1].high;
+    const downMove = candles[i - 1].low - candles[i].low;
+
+    if (upMove > downMove && upMove > 0) {
+      plusDM.push(upMove);
+    } else {
+      plusDM.push(0);
+    }
+
+    if (downMove > upMove && downMove > 0) {
+      minusDM.push(downMove);
+    } else {
+      minusDM.push(0);
+    }
+  }
+
+  // Smooth TR, +DM, -DM with Wilder's method
+  let smoothedTR = 0;
+  let smoothedPlusDM = 0;
+  let smoothedMinusDM = 0;
+
+  for (let i = 1; i <= period; i++) {
+    smoothedTR += trueRanges[i];
+    smoothedPlusDM += plusDM[i];
+    smoothedMinusDM += minusDM[i];
+  }
+
+  const dxValues: { index: number; dx: number }[] = [];
+
+  for (let i = period; i < candles.length; i++) {
+    if (i > period) {
+      smoothedTR = smoothedTR - smoothedTR / period + trueRanges[i];
+      smoothedPlusDM = smoothedPlusDM - smoothedPlusDM / period + plusDM[i];
+      smoothedMinusDM = smoothedMinusDM - smoothedMinusDM / period + minusDM[i];
+    }
+
+    const pDI = smoothedTR !== 0 ? (100 * smoothedPlusDM) / smoothedTR : 0;
+    const mDI = smoothedTR !== 0 ? (100 * smoothedMinusDM) / smoothedTR : 0;
+
+    plusDI[i] = pDI;
+    minusDI[i] = mDI;
+
+    const diSum = pDI + mDI;
+    const dx = diSum !== 0 ? (100 * Math.abs(pDI - mDI)) / diSum : 0;
+    dxValues.push({ index: i, dx });
+  }
+
+  if (dxValues.length >= period) {
+    let initialADXSum = 0;
+    for (let k = 0; k < period; k++) {
+      initialADXSum += dxValues[k].dx;
+    }
+    let currentADX = initialADXSum / period;
+    adx[dxValues[period - 1].index] = currentADX;
+
+    for (let k = period; k < dxValues.length; k++) {
+      currentADX = (currentADX * (period - 1) + dxValues[k].dx) / period;
+      adx[dxValues[k].index] = currentADX;
+    }
+  }
+
+  return { adx, plusDI, minusDI };
+}
+
+// 9. Volume Weighted Average Price (VWAP)
+export function calculateVWAP(candles: Candle[]): (number | null)[] {
+  const result: (number | null)[] = [];
+  let cumulativeTypicalVol = 0;
+  let cumulativeVol = 0;
+
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    const typicalPrice = (c.high + c.low + c.close) / 3;
+    const vol = c.volume > 0 ? c.volume : 1; // Safeguard if volume is 0
+
+    cumulativeTypicalVol += typicalPrice * vol;
+    cumulativeVol += vol;
+
+    result.push(cumulativeTypicalVol / cumulativeVol);
+  }
+  return result;
+}
+
+// 10. Stochastic Oscillator (14, 3, 3)
+export function calculateStochastic(
+  candles: Candle[],
+  kPeriod: number = 14,
+  kSlow: number = 3,
+  dPeriod: number = 3
+): StochasticOutput {
+  const rawK: (number | null)[] = [];
+
+  for (let i = 0; i < candles.length; i++) {
+    if (i < kPeriod - 1) {
+      rawK.push(null);
+      continue;
+    }
+
+    let highestHigh = -Infinity;
+    let lowestLow = Infinity;
+    for (let j = i - kPeriod + 1; j <= i; j++) {
+      if (candles[j].high > highestHigh) highestHigh = candles[j].high;
+      if (candles[j].low < lowestLow) lowestLow = candles[j].low;
+    }
+
+    const currentClose = candles[i].close;
+    const range = highestHigh - lowestLow;
+    if (range === 0) {
+      rawK.push(50);
+    } else {
+      rawK.push(((currentClose - lowestLow) / range) * 100);
+    }
+  }
+
+  // Smooth rawK to get %K
+  const smoothedKValues: (number | null)[] = [];
+  for (let i = 0; i < rawK.length; i++) {
+    if (i < kPeriod - 1 + kSlow - 1) {
+      smoothedKValues.push(null);
+      continue;
+    }
+    let sum = 0;
+    for (let j = i - kSlow + 1; j <= i; j++) {
+      sum += rawK[j]!;
+    }
+    smoothedKValues.push(sum / kSlow);
+  }
+
+  // Calculate %D as SMA of smoothed %K
+  const dValues: (number | null)[] = [];
+  for (let i = 0; i < smoothedKValues.length; i++) {
+    if (smoothedKValues[i] === null || i < kPeriod - 1 + kSlow - 1 + dPeriod - 1) {
+      dValues.push(null);
+      continue;
+    }
+    let sum = 0;
+    for (let j = i - dPeriod + 1; j <= i; j++) {
+      sum += smoothedKValues[j]!;
+    }
+    dValues.push(sum / dPeriod);
+  }
+
+  return { k: smoothedKValues, d: dValues };
+}
+
+// 11. Floor Pivot Points (Classic)
+export function calculatePivotPoints(prevHigh: number, prevLow: number, prevClose: number): PivotPoints {
+  const p = (prevHigh + prevLow + prevClose) / 3;
+  const r1 = 2 * p - prevLow;
+  const s1 = 2 * p - prevHigh;
+  const r2 = p + (prevHigh - prevLow);
+  const s2 = p - (prevHigh - prevLow);
+  const r3 = prevHigh + 2 * (p - prevLow);
+  const s3 = prevLow - 2 * (prevHigh - p);
+
+  return {
+    pivot: Number(p.toFixed(4)),
+    r1: Number(r1.toFixed(4)),
+    r2: Number(r2.toFixed(4)),
+    r3: Number(r3.toFixed(4)),
+    s1: Number(s1.toFixed(4)),
+    s2: Number(s2.toFixed(4)),
+    s3: Number(s3.toFixed(4)),
+  };
+}
+
+// 12. Fibonacci Retracement Levels
+export function calculateFibonacciRetracement(
+  swingHigh: number,
+  swingLow: number,
+  trend: 'UP' | 'DOWN'
+): FibonacciLevels {
+  const diff = swingHigh - swingLow;
+  const ratios = [
+    { ratio: 0, label: '0.0% (Swing End)' },
+    { ratio: 0.236, label: '23.6%' },
+    { ratio: 0.382, label: '38.2%' },
+    { ratio: 0.5, label: '50.0% (Equilibrium)' },
+    { ratio: 0.618, label: '61.8% (Golden Pocket)' },
+    { ratio: 0.786, label: '78.6% (Deep Pullback)' },
+    { ratio: 1.0, label: '100.0% (Swing Start)' },
+  ];
+
+  const levels = ratios.map((r) => {
+    let price: number;
+    if (trend === 'UP') {
+      // In an uptrend, retracement is downwards from swing high
+      price = swingHigh - diff * r.ratio;
+    } else {
+      // In a downtrend, retracement is upwards from swing low
+      price = swingLow + diff * r.ratio;
+    }
+    return {
+      ratio: r.ratio,
+      price: Number(price.toFixed(4)),
+      label: r.label,
+    };
+  });
+
+  return { swingHigh, swingLow, trend, levels };
+}
+
+// 13. Swing Points & Market Structure (HH, HL, LH, LL)
+export function analyzeMarketStructure(candles: Candle[], lookback: number = 3): MarketStructure {
+  const swingPoints: SwingPoint[] = [];
+
+  for (let i = lookback; i < candles.length - lookback; i++) {
+    const current = candles[i];
+    let isHigh = true;
+    let isLow = true;
+
+    for (let j = 1; j <= lookback; j++) {
+      if (candles[i - j].high >= current.high || candles[i + j].high >= current.high) {
+        isHigh = false;
+      }
+      if (candles[i - j].low <= current.low || candles[i + j].low <= current.low) {
+        isLow = false;
+      }
+    }
+
+    if (isHigh) {
+      swingPoints.push({
+        index: i,
+        candle: current,
+        type: 'HIGH',
+        price: current.high,
+      });
+    } else if (isLow) {
+      swingPoints.push({
+        index: i,
+        candle: current,
+        type: 'LOW',
+        price: current.low,
+      });
+    }
+  }
+
+  // Tag market structure tags: HH, HL, LH, LL
+  let prevHigh: number | null = null;
+  let prevLow: number | null = null;
+
+  for (const sp of swingPoints) {
+    if (sp.type === 'HIGH') {
+      if (prevHigh === null) {
+        sp.structureTag = 'HH';
+      } else if (sp.price > prevHigh) {
+        sp.structureTag = 'HH';
+      } else {
+        sp.structureTag = 'LH';
+      }
+      prevHigh = sp.price;
+    } else if (sp.type === 'LOW') {
+      if (prevLow === null) {
+        sp.structureTag = 'HL';
+      } else if (sp.price > prevLow) {
+        sp.structureTag = 'HL';
+      } else {
+        sp.structureTag = 'LL';
+      }
+      prevLow = sp.price;
+    }
+  }
+
+  // Determine overall structure trend
+  const recentTags = swingPoints.slice(-4).map((s) => s.structureTag);
+  const bullishCount = recentTags.filter((t) => t === 'HH' || t === 'HL').length;
+  const bearishCount = recentTags.filter((t) => t === 'LH' || t === 'LL').length;
+
+  let trend: 'BULLISH' | 'BEARISH' | 'RANGING' = 'RANGING';
+  if (bullishCount >= 3) trend = 'BULLISH';
+  else if (bearishCount >= 3) trend = 'BEARISH';
+
+  // Support & Resistance Zones
+  const highs = swingPoints.filter((s) => s.type === 'HIGH').map((s) => s.price);
+  const lows = swingPoints.filter((s) => s.type === 'LOW').map((s) => s.price);
+
+  const resistanceZones = clusterLevels(highs);
+  const supportZones = clusterLevels(lows);
+
+  return {
+    trend,
+    swingPoints,
+    supportZones,
+    resistanceZones,
+  };
+}
+
+function clusterLevels(prices: number[], tolerancePercent: number = 0.003) {
+  if (prices.length === 0) return [];
+  const sorted = [...prices].sort((a, b) => a - b);
+  const zones: { min: number; max: number; touches: number }[] = [];
+
+  let currentCluster = [sorted[0]];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const val = sorted[i];
+    const prev = sorted[i - 1];
+    if ((val - prev) / prev <= tolerancePercent) {
+      currentCluster.push(val);
+    } else {
+      zones.push({
+        min: Math.min(...currentCluster),
+        max: Math.max(...currentCluster),
+        touches: currentCluster.length,
+      });
+      currentCluster = [val];
+    }
+  }
+
+  if (currentCluster.length > 0) {
+    zones.push({
+      min: Math.min(...currentCluster),
+      max: Math.max(...currentCluster),
+      touches: currentCluster.length,
+    });
+  }
+
+  return zones.sort((a, b) => b.touches - a.touches).slice(0, 4);
+}
+
+// 14. Candlestick Pattern Recognition
+export function detectCandlestickPattern(candle: Candle, prevCandle?: Candle): CandlestickPattern | null {
+  const body = Math.abs(candle.close - candle.open);
+  const totalRange = candle.high - candle.low;
+  if (totalRange === 0) return null;
+
+  const upperShadow = candle.high - Math.max(candle.close, candle.open);
+  const lowerShadow = Math.min(candle.close, candle.open) - candle.low;
+  const isBullish = candle.close > candle.open;
+
+  // Bullish Pin Bar / Hammer (Long lower shadow >= 2x body, tiny upper shadow)
+  if (lowerShadow >= 2 * body && upperShadow <= 0.2 * totalRange) {
+    return {
+      name: 'Bullish Hammer / Pin Bar',
+      type: 'BULLISH',
+      significance: 'HIGH',
+      description: 'Strong intraday rejection of lower prices with long lower wick.',
+    };
+  }
+
+  // Bearish Shooting Star / Pin Bar (Long upper shadow >= 2x body, tiny lower shadow)
+  if (upperShadow >= 2 * body && lowerShadow <= 0.2 * totalRange) {
+    return {
+      name: 'Shooting Star / Bearish Pin Bar',
+      type: 'BEARISH',
+      significance: 'HIGH',
+      description: 'Intraday exhaustion and aggressive selling at session highs.',
+    };
+  }
+
+  // Doji
+  if (body / totalRange <= 0.08) {
+    return {
+      name: 'Doji',
+      type: 'NEUTRAL',
+      significance: 'MEDIUM',
+      description: 'Market indecision with virtually identical open and close prices.',
+    };
+  }
+
+  // Engulfing patterns with previous candle
+  if (prevCandle) {
+    const prevBody = Math.abs(prevCandle.close - prevCandle.open);
+    const prevBullish = prevCandle.close > prevCandle.open;
+
+    // Bullish Engulfing
+    if (
+      !prevBullish &&
+      isBullish &&
+      candle.open <= prevCandle.close &&
+      candle.close >= prevCandle.open &&
+      body > prevBody
+    ) {
+      return {
+        name: 'Bullish Engulfing',
+        type: 'BULLISH',
+        significance: 'HIGH',
+        description: 'Bulls completely overpowered prior bearish momentum.',
+      };
+    }
+
+    // Bearish Engulfing
+    if (
+      prevBullish &&
+      !isBullish &&
+      candle.open >= prevCandle.close &&
+      candle.close <= prevCandle.open &&
+      body > prevBody
+    ) {
+      return {
+        name: 'Bearish Engulfing',
+        type: 'BEARISH',
+        significance: 'HIGH',
+        description: 'Bears completely engulfed prior bullish candle.',
+      };
+    }
+  }
+
+  // Marubozu (strong conviction candle)
+  if (body / totalRange >= 0.85) {
+    return {
+      name: isBullish ? 'Bullish Marubozu' : 'Bearish Marubozu',
+      type: isBullish ? 'BULLISH' : 'BEARISH',
+      significance: 'MEDIUM',
+      description: `${isBullish ? 'Buyers' : 'Sellers'} maintained one-way momentum with almost no wicks.`,
+    };
+  }
+
+  return null;
+}
