@@ -300,6 +300,64 @@ export const RiskManagementView: React.FC<RiskManagementViewProps> = ({
               <span className="text-xs font-mono text-slate-400">R</span>
             </div>
           </div>
+
+          {/* Max Daily Trades Limit */}
+          <div className="p-3 bg-[#131b2e] rounded-lg border border-slate-800">
+            <label className="block text-xs font-mono text-slate-300 font-bold mb-1">
+              DAILY TRADE LIMIT ({account.dailyTradeCount || 0} / {config.maxDailyTrades} USED)
+            </label>
+            <p className="text-[11px] text-slate-400 mb-2">
+              Caps total executions per session to enforce strict discipline and prevent overtrading.
+            </p>
+            <input
+              type="number"
+              min="1"
+              max="50"
+              value={config.maxDailyTrades}
+              onChange={(e) => onUpdateConfig({ maxDailyTrades: parseInt(e.target.value) || 10 })}
+              className="w-full bg-[#0a0e17] border border-slate-700 rounded px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-cyan-500"
+            />
+          </div>
+
+          {/* Max Entries Per Symbol (Multiple Entries / Scaling) */}
+          <div className="p-3 bg-[#131b2e] rounded-lg border border-slate-800">
+            <label className="block text-xs font-mono text-slate-300 font-bold mb-1">
+              MAX ENTRIES PER SYMBOL (SCALE-IN)
+            </label>
+            <p className="text-[11px] text-slate-400 mb-2">
+              Controls how many multiple entries or scale-ins are permitted concurrently on a single instrument.
+            </p>
+            <input
+              type="number"
+              min="1"
+              max="5"
+              value={config.maxEntriesPerSymbol}
+              onChange={(e) => onUpdateConfig({ maxEntriesPerSymbol: parseInt(e.target.value) || 3 })}
+              className="w-full bg-[#0a0e17] border border-slate-700 rounded px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-cyan-500"
+            />
+          </div>
+
+          {/* Max Daily Loss USD Cap */}
+          <div className="p-3 bg-[#131b2e] rounded-lg border border-slate-800">
+            <label className="block text-xs font-mono text-slate-300 font-bold mb-1">
+              MAX DAILY LOSS CAP (USD)
+            </label>
+            <p className="text-[11px] text-slate-400 mb-2">
+              Hard dollar loss limit per session complementing percentage drawdown controls.
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono text-slate-400">$</span>
+              <input
+                type="number"
+                step="50"
+                min="100"
+                max="25000"
+                value={config.maxDailyLossUSD}
+                onChange={(e) => onUpdateConfig({ maxDailyLossUSD: parseFloat(e.target.value) || 500 })}
+                className="w-full bg-[#0a0e17] border border-slate-700 rounded px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-cyan-500"
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { AccountState, RiskConfig } from '../utils/risk.ts';
 import { evaluateOrderRisk, INSTRUMENT_SPECS } from '../utils/risk.ts';
+import type { SizingMode, TradingEnvironment } from '../types/trading.ts';
 import { ShieldCheck, AlertOctagon, Calculator, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 
 interface OrderEntryPanelProps {
@@ -9,6 +10,11 @@ interface OrderEntryPanelProps {
   currentAsk: number;
   account: AccountState;
   riskConfig: RiskConfig;
+  environment: TradingEnvironment;
+  sizingMode: SizingMode;
+  fixedPositionSize: number;
+  emergencyTradingDisabled: boolean;
+  mt5Connected: boolean;
   onPlaceOrder: (order: {
     symbol: string;
     side: 'LONG' | 'SHORT';
@@ -31,19 +37,33 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
   currentAsk,
   account,
   riskConfig,
+  environment,
+  sizingMode,
+  fixedPositionSize,
+  emergencyTradingDisabled,
+  mt5Connected,
   onPlaceOrder,
   presetSignal,
 }) => {
   const spec = INSTRUMENT_SPECS[symbol] || INSTRUMENT_SPECS['XAU/USD'];
 
   const [side, setSide] = useState<'LONG' | 'SHORT'>('LONG');
-  const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('MARKET');
+  const [orderType] = useState<'MARKET' | 'LIMIT'>('MARKET');
   const [entryPrice, setEntryPrice] = useState<number>(side === 'LONG' ? currentAsk : currentBid);
   const [stopLoss, setStopLoss] = useState<number>(0);
   const [takeProfit, setTakeProfit] = useState<number>(0);
-  const [lots, setLots] = useState<number>(1.0);
+  const [lots, setLots] = useState<number>(
+    sizingMode === 'FIXED_LOT' ? fixedPositionSize : 1.0
+  );
 
-  // Keep entry price updated if MARKET order and no active edits
+  // Sync default lot size when user changes persistent sizing settings
+  useEffect(() => {
+    if (sizingMode === 'FIXED_LOT' && fixedPositionSize > 0) {
+      setLots(fixedPositionSize);
+    }
+  }, [sizingMode, fixedPositionSize]);
+
+  // Keep entry price updated if MARKET order
   useEffect(() => {
     if (presetSignal) {
       setSide(presetSignal.side);
@@ -53,17 +73,23 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
     } else if (orderType === 'MARKET') {
       const price = side === 'LONG' ? currentAsk : currentBid;
       setEntryPrice(price);
-      if (stopLoss === 0) {
-        // Auto default 1.5% distance
+      if (stopLoss === 0 && price > 0) {
         const defaultStop = side === 'LONG' ? price * 0.995 : price * 1.005;
-        const defaultTP = side === 'LONG' ? price + (price - defaultStop) * 2 : price - (defaultStop - price) * 2;
+        const defaultTP =
+          side === 'LONG'
+            ? price + (price - defaultStop) * 2
+            : price - (defaultStop - price) * 2;
         setStopLoss(Number(defaultStop.toFixed(spec.pipSize < 0.1 ? 4 : 2)));
         setTakeProfit(Number(defaultTP.toFixed(spec.pipSize < 0.1 ? 4 : 2)));
       }
     }
-  }, [presetSignal, side, currentBid, currentAsk, orderType, spec]);
+  }, [presetSignal, side, currentBid, currentAsk, orderType, spec, stopLoss]);
 
-  // Evaluate risk calculations dynamically
+  const effectiveRiskConfig: RiskConfig = {
+    ...riskConfig,
+    killSwitchActive: riskConfig.killSwitchActive || emergencyTradingDisabled,
+  };
+
   const riskEval = evaluateOrderRisk(
     {
       symbol,
@@ -74,21 +100,30 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
       spreadPoints: side === 'LONG' ? currentAsk - currentBid : spec.typicalSpreadPoints,
     },
     account,
-    riskConfig,
+    effectiveRiskConfig,
     spec
   );
 
-  // Auto-calculate optimal lot size from 0.5% risk rule
+  const mt5Blocked = environment === 'MT5_DEMO' && !mt5Connected;
+  const orderAllowed = riskEval.allowed && !mt5Blocked && !emergencyTradingDisabled;
+  const rejectReason = emergencyTradingDisabled
+    ? 'Global Emergency Trading-Disable is active. All order execution is locked.'
+    : mt5Blocked
+    ? 'MT5 Demo EA is disconnected. No simulated or fabricated broker orders will be submitted.'
+    : riskEval.rejectReason;
+
   const handleAutoRiskSizing = () => {
-    if (riskEval.recommendedLots > 0) {
+    if (sizingMode === 'FIXED_LOT') {
+      setLots(fixedPositionSize);
+    } else if (riskEval.recommendedLots > 0) {
       setLots(riskEval.recommendedLots);
     }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!riskEval.allowed && riskEval.rejectReason) {
-      return; // blocked by risk engine
+    if (!orderAllowed) {
+      return;
     }
 
     onPlaceOrder({
@@ -105,10 +140,12 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
     <div className="bg-[#0e1424] rounded-xl border border-slate-800 p-3.5 shadow-xl">
       <div className="flex items-center justify-between pb-2 mb-3 border-b border-slate-800/80">
         <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-300">
-          ORDER EXECUTION (PAPER)
+          ORDER ENTRY ({environment === 'SIMULATION' ? 'SIMULATION' : 'MT5 DEMO'})
         </span>
         <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/50">
-          RISK BUDGET: {riskConfig.riskPercentagePerTrade}%
+          {sizingMode === 'FIXED_LOT'
+            ? `FIXED: ${fixedPositionSize} LOTS`
+            : `RISK: ${riskConfig.riskPercentagePerTrade}%`}
         </span>
       </div>
 
@@ -118,7 +155,7 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
           <button
             type="button"
             onClick={() => setSide('LONG')}
-            className={`py-2 px-3 rounded-lg font-mono text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+            className={`py-2 px-3 rounded-lg font-mono text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               side === 'LONG'
                 ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30 ring-1 ring-emerald-400'
                 : 'bg-[#131b2e] text-slate-400 border border-slate-800 hover:bg-[#18233c]'
@@ -130,7 +167,7 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
           <button
             type="button"
             onClick={() => setSide('SHORT')}
-            className={`py-2 px-3 rounded-lg font-mono text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+            className={`py-2 px-3 rounded-lg font-mono text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               side === 'SHORT'
                 ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30 ring-1 ring-rose-400'
                 : 'bg-[#131b2e] text-slate-400 border border-slate-800 hover:bg-[#18233c]'
@@ -148,10 +185,12 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
             <button
               type="button"
               onClick={handleAutoRiskSizing}
-              className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 text-[10px] font-semibold underline"
+              className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 text-[10px] font-semibold underline cursor-pointer"
             >
               <Calculator className="w-3 h-3" />
-              Auto Size ({riskEval.recommendedLots} Lots)
+              {sizingMode === 'FIXED_LOT'
+                ? `Fixed (${fixedPositionSize} Lots)`
+                : `Auto Size (${riskEval.recommendedLots} Lots)`}
             </button>
           </div>
           <div className="flex items-center gap-2">
@@ -170,7 +209,7 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
                   key={v}
                   type="button"
                   onClick={() => setLots(v)}
-                  className="px-2 py-1 text-[10px] font-mono bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700"
+                  className="px-2 py-1 text-[10px] font-mono bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 cursor-pointer"
                 >
                   {v}
                 </button>
@@ -179,7 +218,7 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
           </div>
         </div>
 
-        {/* Price Levels (Entry, Stop Loss, Take Profit) */}
+        {/* Price Levels */}
         <div className="space-y-2">
           <div>
             <label className="block text-[11px] font-mono text-slate-400 mb-1">ENTRY PRICE</label>
@@ -194,7 +233,7 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-[11px] font-mono text-rose-400 mb-1">STOP LOSS (PROTECTION)</label>
+              <label className="block text-[11px] font-mono text-rose-400 mb-1">STOP LOSS</label>
               <input
                 type="number"
                 step="any"
@@ -219,7 +258,7 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
         {/* Live Risk & Cost Estimates Breakdown */}
         <div className="p-2.5 rounded-lg bg-[#111728] border border-slate-800 text-[11px] font-mono space-y-1">
           <div className="flex justify-between text-slate-400">
-            <span>Risk Budget (0.5%):</span>
+            <span>Risk Budget ({riskConfig.riskPercentagePerTrade}%):</span>
             <span className="text-slate-200 font-bold">${riskEval.riskAmountUSD.toFixed(2)}</span>
           </div>
           <div className="flex justify-between text-slate-400">
@@ -239,13 +278,13 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
           </div>
         </div>
 
-        {/* Risk Engine Invalidation / Rejection Alert */}
-        {!riskEval.allowed && (
+        {/* Risk Engine / Bridge Guardrail Alert */}
+        {!orderAllowed && rejectReason && (
           <div className="p-2 rounded-lg bg-rose-950/60 border border-rose-700/60 text-rose-300 text-[11px] flex items-start gap-2">
             <AlertOctagon className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
             <div>
-              <span className="font-bold block">RISK GUARDRAIL ACTIVE:</span>
-              <span>{riskEval.rejectReason}</span>
+              <span className="font-bold block">EXECUTION GUARDRAIL ACTIVE:</span>
+              <span>{rejectReason}</span>
             </div>
           </div>
         )}
@@ -253,9 +292,9 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
         {/* Submit Order Button */}
         <button
           type="submit"
-          disabled={!riskEval.allowed}
+          disabled={!orderAllowed}
           className={`w-full py-2.5 rounded-lg font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
-            riskEval.allowed
+            orderAllowed
               ? side === 'LONG'
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30 cursor-pointer'
                 : 'bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-600/30 cursor-pointer'
@@ -263,7 +302,9 @@ export const OrderEntryPanel: React.FC<OrderEntryPanelProps> = ({
           }`}
         >
           <ShieldCheck className="w-4 h-4" />
-          {riskEval.allowed ? `SUBMIT PAPER ${side} ORDER` : 'ORDER REJECTED BY RISK ENGINE'}
+          {orderAllowed
+            ? `SUBMIT ${environment === 'SIMULATION' ? 'SIMULATION' : 'MT5 DEMO'} ${side}`
+            : 'ORDER BLOCKED BY GUARDRAIL'}
         </button>
       </form>
     </div>

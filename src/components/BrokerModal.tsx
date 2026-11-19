@@ -1,55 +1,47 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   X,
-  ShieldAlert,
   Lock,
   CheckCircle,
-  AlertTriangle,
   Server,
-  KeyRound,
-  ExternalLink,
+  Cpu,
+  ShieldAlert,
+  Settings,
 } from 'lucide-react';
+import type { MT5DemoBridgeStatus, TradingEnvironment } from '../types/trading.ts';
 
 interface BrokerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  isLiveMode: boolean;
-  onToggleLiveMode: (enable: boolean) => void;
+  environment: TradingEnvironment;
+  onChangeEnvironment: (env: TradingEnvironment) => void;
+  mt5Status: MT5DemoBridgeStatus;
+  onOpenSettings: () => void;
 }
 
 export const BrokerModal: React.FC<BrokerModalProps> = ({
   isOpen,
   onClose,
-  isLiveMode,
-  onToggleLiveMode,
+  environment,
+  onChangeEnvironment,
+  mt5Status,
+  onOpenSettings,
 }) => {
-  const [selectedBroker, setSelectedBroker] = useState<'paper' | 'exness' | 'mt5' | 'ibkr' | 'binance'>('paper');
-  const [confirmUnderstood, setConfirmUnderstood] = useState<boolean>(false);
-  const [activationError, setActivationError] = useState<string | null>(null);
-
   if (!isOpen) return null;
 
-  const handleActivateLive = () => {
-    if (!confirmUnderstood) {
-      setActivationError('You must explicitly acknowledge the live execution risks before enabling live trading.');
-      return;
-    }
-    onToggleLiveMode(true);
-    onClose();
-  };
-
-  const handleSwitchToDemo = () => {
-    onToggleLiveMode(false);
-    onClose();
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-[#0e1424] rounded-2xl border border-slate-700/80 max-w-2xl w-full p-5 shadow-2xl relative">
-        {/* Close Button */}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-[#0e1424] rounded-2xl border border-slate-700/80 max-w-2xl w-full p-5 shadow-2xl relative space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
         <button
+          type="button"
           onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors"
+          className="absolute top-4 right-4 p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>
@@ -61,169 +53,133 @@ export const BrokerModal: React.FC<BrokerModalProps> = ({
           </div>
           <div>
             <h2 className="text-base font-bold font-mono text-white">
-              BROKER INTEGRATION & EXECUTION GATEWAY
+              EXECUTION ENVIRONMENTS &amp; BROKER GUARDRAILS
             </h2>
             <span className="text-xs text-slate-400">
-              Institutional order routing, Exness / MT5 reconciliation & live guardrails
+              Isolated Simulation and MT5 Demo workspaces — Live capital execution disabled
             </span>
           </div>
         </div>
 
-        {/* Current Execution Mode Banner */}
-        <div className="my-4 p-3.5 rounded-xl border flex items-center justify-between gap-3 bg-[#111728] border-slate-800">
+        {/* Active Environment Banner */}
+        <div className="p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 bg-[#111728] border-slate-800">
           <div>
-            <span className="text-[11px] font-mono text-slate-400 block">CURRENT EXECUTION MODE</span>
+            <span className="text-[11px] font-mono text-slate-400 block">ACTIVE WORKSPACE</span>
             <div className="flex items-center gap-2 mt-0.5">
               <span
                 className={`font-mono font-bold text-sm ${
-                  isLiveMode ? 'text-amber-400' : 'text-emerald-400'
+                  environment === 'SIMULATION' ? 'text-emerald-400' : 'text-cyan-400'
                 }`}
               >
-                {isLiveMode ? 'LIVE BROKER EXECUTION' : 'PAPER TRADING (SIMULATED DEMO)'}
+                {environment === 'SIMULATION'
+                  ? 'SIMULATION SANDBOX (PAPER)'
+                  : 'MT5 DEMO ENVIRONMENT'}
               </span>
               <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
-                {isLiveMode ? 'REAL CAPITAL AT RISK' : 'ZERO RISK ENVIRONMENT'}
+                ZERO REAL CAPITAL RISK
               </span>
             </div>
           </div>
 
-          {isLiveMode ? (
-            <button
-              onClick={handleSwitchToDemo}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold transition-colors cursor-pointer"
-            >
-              Switch to Paper Demo
-            </button>
-          ) : (
-            <span className="text-xs font-mono text-emerald-400 flex items-center gap-1 font-semibold">
-              <CheckCircle className="w-4 h-4" /> Active & Safe
-            </span>
-          )}
-        </div>
-
-        {/* Supported Broker Integrations */}
-        <div className="space-y-3">
-          <span className="text-xs font-mono font-bold uppercase tracking-wider text-slate-300">
-            SUPPORTED BROKER INTERFACES
+          <span className="text-xs font-mono text-emerald-400 flex items-center gap-1 font-semibold">
+            <CheckCircle className="w-4 h-4" /> Live Trading Locked Off
           </span>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
-            <div
-              onClick={() => setSelectedBroker('paper')}
-              className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                selectedBroker === 'paper'
-                  ? 'bg-cyan-950/40 border-cyan-500/60 ring-1 ring-cyan-500/30'
-                  : 'bg-[#12192c] border-slate-800 hover:border-slate-700'
-              }`}
-            >
-              <div className="font-bold text-slate-200">Apex Paper Engine (Default)</div>
-              <p className="text-[10px] text-slate-400 mt-0.5">
-                Full tick simulation with bid/ask spread, commission, and slippage modelling.
-              </p>
-            </div>
-
-            <div
-              onClick={() => setSelectedBroker('exness')}
-              className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                selectedBroker === 'exness'
-                  ? 'bg-cyan-950/40 border-cyan-500/60 ring-1 ring-cyan-500/30'
-                  : 'bg-[#12192c] border-slate-800 hover:border-slate-700'
-              }`}
-            >
-              <div className="font-bold text-slate-200">Exness / MetaTrader Gateway</div>
-              <p className="text-[10px] text-slate-400 mt-0.5">
-                MT5 REST WebAPI bridge with position reconciliation & idempotency tokens.
-              </p>
-            </div>
-
-            <div
-              onClick={() => setSelectedBroker('ibkr')}
-              className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                selectedBroker === 'ibkr'
-                  ? 'bg-cyan-950/40 border-cyan-500/60 ring-1 ring-cyan-500/30'
-                  : 'bg-[#12192c] border-slate-800 hover:border-slate-700'
-              }`}
-            >
-              <div className="font-bold text-slate-200">Interactive Brokers (TWS / FIX)</div>
-              <p className="text-[10px] text-slate-400 mt-0.5">
-                Client Portal API integration for Gold futures & spot forex routing.
-              </p>
-            </div>
-
-            <div
-              onClick={() => setSelectedBroker('binance')}
-              className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                selectedBroker === 'binance'
-                  ? 'bg-cyan-950/40 border-cyan-500/60 ring-1 ring-cyan-500/30'
-                  : 'bg-[#12192c] border-slate-800 hover:border-slate-700'
-              }`}
-            >
-              <div className="font-bold text-slate-200">Binance / Crypto Pro API</div>
-              <p className="text-[10px] text-slate-400 mt-0.5">
-                HMAC-SHA256 authenticated order signing with WebSocket execution stream.
-              </p>
-            </div>
-          </div>
         </div>
 
-        {/* Security & Credentials Policy */}
-        <div className="mt-4 p-3 bg-slate-900/80 rounded-xl border border-slate-800 text-[11px] font-mono space-y-1 text-slate-400">
-          <div className="flex items-center gap-1.5 text-cyan-300 font-bold">
-            <Lock className="w-3.5 h-3.5" />
-            STRICT SECURITY ARCHITECTURE
+        {/* Selectable Environments */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
+          <button
+            type="button"
+            onClick={() => {
+              onChangeEnvironment('SIMULATION');
+              onClose();
+            }}
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+              environment === 'SIMULATION'
+                ? 'bg-emerald-950/30 border-emerald-500/60 ring-1 ring-emerald-500/30'
+                : 'bg-[#12192c] border-slate-800 hover:border-slate-700'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-bold text-slate-100 flex items-center gap-1.5">
+                <Cpu className="w-4 h-4 text-emerald-400" />
+                Simulation Sandbox
+              </span>
+              {environment === 'SIMULATION' && (
+                <span className="text-[10px] text-emerald-300 font-bold">ACTIVE</span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Self-contained $100,000 synthetic paper market with full SMMA/SMC signal testing, spread, and commission simulation.
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onChangeEnvironment('MT5_DEMO');
+              onClose();
+            }}
+            className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+              environment === 'MT5_DEMO'
+                ? 'bg-cyan-950/30 border-cyan-500/60 ring-1 ring-cyan-500/30'
+                : 'bg-[#12192c] border-slate-800 hover:border-slate-700'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-bold text-slate-100 flex items-center gap-1.5">
+                <Server className="w-4 h-4 text-cyan-400" />
+                MT5 Demo Bridge
+              </span>
+              <span
+                className={`text-[10px] font-bold ${
+                  mt5Status.connected ? 'text-emerald-300' : 'text-rose-300'
+                }`}
+              >
+                {mt5Status.connected ? 'EA LINKED' : 'DISCONNECTED'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Dedicated MetaTrader 5 Demo workspace. Connects only when a real MT5 Demo EA sends an authenticated heartbeat.
+            </p>
+          </button>
+        </div>
+
+        {/* Live Trading Disabled Notice */}
+        <div className="p-3.5 rounded-xl bg-rose-950/25 border border-rose-800/50 text-xs font-mono space-y-1.5">
+          <div className="flex items-center gap-1.5 text-rose-300 font-bold">
+            <ShieldAlert className="w-4 h-4 text-rose-400" />
+            LIVE BROKER EXECUTION DISABLED (SYSTEM GUARDRAIL)
           </div>
-          <p>
-            • Apex Trader AI never requests or stores broker account passwords.
+          <p className="text-[11px] text-slate-300">
+            Phase 1 strictly prohibits real-money order routing. Real/Live MT5 accounts are rejected on both frontend and backend.
           </p>
-          <p>
-            • API keys and credentials reside exclusively in server-side environment variables or secret vaults.
-          </p>
-          <p>
-            • Every outbound order enforces client-side and server-side risk limit validation before submission.
+          <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
+            <Lock className="w-3 h-3 text-slate-500" />
+            Broker account passwords are never requested or stored.
           </p>
         </div>
 
-        {/* Live Activation Guardrail Form */}
-        {!isLiveMode && (
-          <div className="mt-4 pt-3 border-t border-slate-800 space-y-3">
-            <div className="flex items-start gap-2">
-              <input
-                type="checkbox"
-                id="ack"
-                checked={confirmUnderstood}
-                onChange={(e) => {
-                  setConfirmUnderstood(e.target.checked);
-                  setActivationError(null);
-                }}
-                className="mt-0.5 rounded bg-slate-800 border-slate-700 text-cyan-500 focus:ring-0 cursor-pointer"
-              />
-              <label htmlFor="ack" className="text-[11px] font-mono text-slate-300 cursor-pointer select-none">
-                I understand that live trading incurs genuine financial risk. I verify that position sizing, stop-loss limits,
-                and emergency kill switches are configured properly for my account equity.
-              </label>
-            </div>
-
-            {activationError && (
-              <p className="text-rose-400 text-xs font-mono">{activationError}</p>
-            )}
-
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={onClose}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono font-bold transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleActivateLive}
-                className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md shadow-amber-600/20 cursor-pointer"
-              >
-                <AlertTriangle className="w-3.5 h-3.5" />
-                Activate Live Mode
-              </button>
-            </div>
-          </div>
-        )}
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onOpenSettings();
+            }}
+            className="px-3.5 py-2 rounded-lg bg-[#131b2e] hover:bg-slate-800 border border-slate-700 text-cyan-300 text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            Configure MT5 Demo Bridge
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-mono font-bold cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );

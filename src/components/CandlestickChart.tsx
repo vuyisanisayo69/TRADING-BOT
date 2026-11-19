@@ -1,42 +1,56 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import type { Candle } from '../utils/indicators.ts';
+import type { PriceAlert } from '../utils/alerts.ts';
 import {
   calculateSMMA,
-  calculateEMA,
   calculateBollingerBands,
   calculateVWAP,
   calculateRSI,
   calculateMACD,
   calculateStochastic,
-  calculateATR,
   calculateADX,
-  calculatePivotPoints,
-  calculateFibonacciRetracement,
   analyzeMarketStructure,
   detectCandlestickPattern,
+  detectFairValueGaps,
+  detectLiquiditySweeps,
+  detectDisplacement,
+  detectOrderBlocks,
+  calculateVolumeProfile,
 } from '../utils/indicators.ts';
+import type { MarketTicker } from '../utils/marketData.ts';
+import { Camera } from 'lucide-react';
 
 interface CandlestickChartProps {
   symbol: string;
   timeframe: string;
   candles: Candle[];
+  ticker?: MarketTicker;
   activeTrade?: {
     side: 'LONG' | 'SHORT';
     entryPrice: number;
     stopLoss: number;
     takeProfit: number;
   } | null;
+  alerts?: PriceAlert[];
   digits?: number;
+  utcOffsetHours?: number;
   onSelectTimeframe: (tf: string) => void;
+  onOpenAlertsModal?: () => void;
+  onCaptureToVision?: (dataUrl: string) => void;
 }
 
 export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   symbol,
   timeframe,
   candles,
+  ticker,
   activeTrade,
+  alerts = [],
   digits = 2,
+  utcOffsetHours = 2,
   onSelectTimeframe,
+  onOpenAlertsModal,
+  onCaptureToVision,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -44,54 +58,47 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
   // Overlay state toggles
   const [showSMMA, setShowSMMA] = useState(true);
-  const [showEMA, setShowEMA] = useState(false);
-  const [showBB, setShowBB] = useState(true);
+  const [showBB, setShowBB] = useState(false);
   const [showVWAP, setShowVWAP] = useState(true);
   const [showSR, setShowSR] = useState(true);
-  const [showPivots, setShowPivots] = useState(false);
-  const [showFib, setShowFib] = useState(false);
+  const [showFVG, setShowFVG] = useState(true);
+  const [showOB, setShowOB] = useState(true);
+  const [showSMC, setShowSMC] = useState(true);
+  const [showVP, setShowVP] = useState(true);
 
   // Sub-chart selector
   const [subIndicator, setSubIndicator] = useState<'RSI' | 'MACD' | 'STOCH' | 'ATR_ADX'>('RSI');
 
   // Chart view parameters
-  const [visibleCount, setVisibleCount] = useState(65);
+  const [visibleCount] = useState(65);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
 
-  // Timeframes available
   const timeframes = ['M1', 'M5', 'M15', 'H1', 'H4'];
 
   // Pre-calculate indicators
   const closes = useMemo(() => candles.map((c) => c.close), [candles]);
   const smma5 = useMemo(() => calculateSMMA(closes, 5), [closes]);
   const smma50 = useMemo(() => calculateSMMA(closes, 50), [closes]);
-  const ema9 = useMemo(() => calculateEMA(closes, 9), [closes]);
-  const ema21 = useMemo(() => calculateEMA(closes, 21), [closes]);
-  const ema50 = useMemo(() => calculateEMA(closes, 50), [closes]);
-  const ema200 = useMemo(() => calculateEMA(closes, 200), [closes]);
   const bb = useMemo(() => calculateBollingerBands(closes, 20, 2), [closes]);
   const vwap = useMemo(() => calculateVWAP(candles), [candles]);
   const rsi = useMemo(() => calculateRSI(closes, 14), [closes]);
   const macd = useMemo(() => calculateMACD(closes, 12, 26, 9), [closes]);
   const stoch = useMemo(() => calculateStochastic(candles, 14, 3, 3), [candles]);
-  const atr = useMemo(() => calculateATR(candles, 14), [candles]);
   const adx = useMemo(() => calculateADX(candles, 14), [candles]);
   const structure = useMemo(() => analyzeMarketStructure(candles, 3), [candles]);
 
-  const pivots = useMemo(() => {
-    if (candles.length < 2) return null;
-    const prev = candles[candles.length - 2];
-    return calculatePivotPoints(prev.high, prev.low, prev.close);
-  }, [candles]);
+  // Visible window SMC + Volume Profile
+  const visibleSlice = useMemo(() => {
+    const startIndex = Math.max(0, candles.length - visibleCount);
+    return candles.slice(startIndex);
+  }, [candles, visibleCount]);
 
-  const fib = useMemo(() => {
-    if (candles.length < 30) return null;
-    const slice = candles.slice(-50);
-    const high = Math.max(...slice.map((c) => c.high));
-    const low = Math.min(...slice.map((c) => c.low));
-    return calculateFibonacciRetracement(high, low, 'UP');
-  }, [candles]);
+  const fvgs = useMemo(() => detectFairValueGaps(visibleSlice, 0.12), [visibleSlice]);
+  const orderBlocks = useMemo(() => detectOrderBlocks(visibleSlice), [visibleSlice]);
+  const sweeps = useMemo(() => detectLiquiditySweeps(visibleSlice, 18), [visibleSlice]);
+  const displacements = useMemo(() => detectDisplacement(visibleSlice, 1.3), [visibleSlice]);
+  const volumeProfile = useMemo(() => calculateVolumeProfile(visibleSlice, 22), [visibleSlice]);
 
   // Main Canvas Render Loop
   useEffect(() => {
@@ -114,7 +121,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const visibleCandles = candles.slice(startIndex);
     const count = visibleCandles.length;
 
-    // Price range calculation
     let minPrice = Infinity;
     let maxPrice = -Infinity;
 
@@ -130,7 +136,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
     }
 
-    // Include active trade prices in visible scale
     if (activeTrade) {
       minPrice = Math.min(minPrice, activeTrade.stopLoss, activeTrade.entryPrice);
       maxPrice = Math.max(maxPrice, activeTrade.takeProfit, activeTrade.entryPrice);
@@ -141,9 +146,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     maxPrice += priceMargin;
     const priceRange = maxPrice - minPrice;
 
-    // Layout margins
-    const rightMargin = 68; // Price scale
-    const bottomMargin = 22; // Time scale
+    const rightMargin = 72;
+    const bottomMargin = 22;
     const plotWidth = width - rightMargin;
     const plotHeight = height - bottomMargin;
 
@@ -155,11 +159,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       return plotHeight - ((price - minPrice) / priceRange) * plotHeight;
     };
 
-    // Draw Grid Lines
+    // Grid Lines
     ctx.strokeStyle = '#1e293b';
     ctx.lineWidth = 0.5;
 
-    // Horizontal Price Grids
     const gridSteps = 6;
     for (let g = 0; g <= gridSteps; g++) {
       const p = minPrice + (priceRange / gridSteps) * g;
@@ -169,14 +172,12 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.lineTo(plotWidth, y);
       ctx.stroke();
 
-      // Price Label
       ctx.fillStyle = '#64748b';
       ctx.font = '10px JetBrains Mono, monospace';
       ctx.textAlign = 'left';
       ctx.fillText(p.toFixed(digits), plotWidth + 6, y + 3);
     }
 
-    // Vertical Time Grids
     const timeStep = Math.max(1, Math.floor(count / 6));
     for (let t = 0; t < count; t += timeStep) {
       const x = t * candleWidth + candleWidth / 2;
@@ -186,35 +187,117 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.stroke();
 
       const c = visibleCandles[t];
-      const date = new Date(c.time * 1000);
-      const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      const date = new Date((c.time + utcOffsetHours * 3600) * 1000);
+      const hours = String(date.getUTCHours()).padStart(2, '0');
+      const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+      const timeStr = `${hours}:${minutes}`;
       ctx.fillStyle = '#64748b';
       ctx.font = '10px JetBrains Mono, monospace';
       ctx.textAlign = 'center';
       ctx.fillText(timeStr, x, height - 6);
     }
 
-    // Render Support and Resistance Zones
+    // Volume Profile Histogram + POC line
+    if (showVP && volumeProfile.buckets.length > 0) {
+      const maxBucketVol = Math.max(...volumeProfile.buckets.map((b) => b.volume), 1);
+      const maxBarWidth = Math.min(76, plotWidth * 0.14);
+
+      for (const b of volumeProfile.buckets) {
+        const yTop = getY(b.priceHigh);
+        const yBottom = getY(b.priceLow);
+        const barH = Math.max(1, yBottom - yTop - 1);
+        const barW = (b.volume / maxBucketVol) * maxBarWidth;
+        const xStart = plotWidth - barW;
+
+        ctx.fillStyle = b.isPOC
+          ? 'rgba(245, 158, 11, 0.36)'
+          : b.isHVN
+          ? 'rgba(56, 189, 248, 0.22)'
+          : 'rgba(100, 116, 139, 0.14)';
+        ctx.fillRect(xStart, yTop, barW, barH);
+      }
+
+      if (volumeProfile.poc >= minPrice && volumeProfile.poc <= maxPrice) {
+        const pocY = getY(volumeProfile.poc);
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.7)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(0, pocY);
+        ctx.lineTo(plotWidth, pocY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = '#f59e0b';
+        ctx.font = 'bold 9px JetBrains Mono, monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('POC', 6, pocY - 4);
+      }
+    }
+
+    // Support and Resistance Zones
     if (showSR && structure) {
       for (const zone of structure.supportZones) {
         const yTop = getY(zone.max);
         const yBottom = getY(zone.min);
-        ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.06)';
         ctx.fillRect(0, yTop, plotWidth, Math.max(2, yBottom - yTop));
-        ctx.strokeStyle = 'rgba(16, 185, 129, 0.25)';
+        ctx.strokeStyle = 'rgba(16, 185, 129, 0.2)';
         ctx.strokeRect(0, yTop, plotWidth, Math.max(2, yBottom - yTop));
       }
       for (const zone of structure.resistanceZones) {
         const yTop = getY(zone.max);
         const yBottom = getY(zone.min);
-        ctx.fillStyle = 'rgba(244, 63, 94, 0.08)';
+        ctx.fillStyle = 'rgba(244, 63, 94, 0.06)';
         ctx.fillRect(0, yTop, plotWidth, Math.max(2, yBottom - yTop));
-        ctx.strokeStyle = 'rgba(244, 63, 94, 0.25)';
+        ctx.strokeStyle = 'rgba(244, 63, 94, 0.2)';
         ctx.strokeRect(0, yTop, plotWidth, Math.max(2, yBottom - yTop));
       }
     }
 
-    // Render Bollinger Bands Ribbon
+    // Fair Value Gaps (Unmitigated zones)
+    if (showFVG && fvgs.length > 0) {
+      const activeFvgs = fvgs.filter((g) => !g.mitigated).slice(-5);
+      for (const g of activeFvgs) {
+        const xStart = g.startIndex * candleWidth;
+        const yTop = getY(g.top);
+        const yBottom = getY(g.bottom);
+        const boxH = Math.max(2, yBottom - yTop);
+        ctx.fillStyle = g.type === 'BULLISH' ? 'rgba(16, 185, 129, 0.14)' : 'rgba(244, 63, 94, 0.14)';
+        ctx.fillRect(xStart, yTop, plotWidth - xStart, boxH);
+        ctx.strokeStyle = g.type === 'BULLISH' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(244, 63, 94, 0.4)';
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(xStart, yTop, plotWidth - xStart, boxH);
+
+        ctx.fillStyle = g.type === 'BULLISH' ? '#34d399' : '#fb7185';
+        ctx.font = 'bold 8px JetBrains Mono, monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('FVG', xStart + 4, yTop + 9);
+      }
+    }
+
+    // Order Blocks (Supply & Demand)
+    if (showOB && orderBlocks.length > 0) {
+      const activeObs = orderBlocks.filter((ob) => !ob.mitigated).slice(-4);
+      for (const ob of activeObs) {
+        const xStart = ob.index * candleWidth;
+        const yTop = getY(ob.top);
+        const yBottom = getY(ob.bottom);
+        const boxH = Math.max(3, yBottom - yTop);
+        ctx.fillStyle = ob.type === 'DEMAND' ? 'rgba(56, 189, 248, 0.14)' : 'rgba(249, 115, 22, 0.14)';
+        ctx.fillRect(xStart, yTop, plotWidth - xStart, boxH);
+        ctx.strokeStyle = ob.type === 'DEMAND' ? 'rgba(56, 189, 248, 0.45)' : 'rgba(249, 115, 22, 0.45)';
+        ctx.lineWidth = 0.9;
+        ctx.strokeRect(xStart, yTop, plotWidth - xStart, boxH);
+
+        ctx.fillStyle = ob.type === 'DEMAND' ? '#38bdf8' : '#fb923c';
+        ctx.font = 'bold 8px JetBrains Mono, monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(ob.type === 'DEMAND' ? 'DEMAND OB' : 'SUPPLY OB', xStart + 4, yBottom - 3);
+      }
+    }
+
+    // Bollinger Bands Ribbon
     if (showBB) {
       ctx.fillStyle = 'rgba(56, 189, 248, 0.05)';
       ctx.beginPath();
@@ -245,7 +328,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.closePath();
       ctx.fill();
 
-      // Stroke Upper and Lower BB
       ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -275,7 +357,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.stroke();
     }
 
-    // Render Candlesticks
+    const displacementIdxSet = new Set(displacements.map((d) => d.index));
+
+    // Candlesticks
     for (let i = 0; i < count; i++) {
       const c = visibleCandles[i];
       const xCenter = i * candleWidth + candleWidth / 2;
@@ -291,17 +375,22 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.fillStyle = color;
       ctx.lineWidth = 1;
 
-      // Wick
       ctx.beginPath();
       ctx.moveTo(xCenter, wickTop);
       ctx.lineTo(xCenter, wickBottom);
       ctx.stroke();
 
-      // Body
       const bodyHeight = Math.max(1.5, bodyBottom - bodyTop);
       ctx.fillRect(xCenter - barBodyWidth / 2, bodyTop, barBodyWidth, bodyHeight);
 
-      // Candlestick Pattern Detection Tag
+      // Highlight Displacement breakout candles
+      if (showSMC && displacementIdxSet.has(i)) {
+        ctx.strokeStyle = isBullish ? '#38bdf8' : '#fbbf24';
+        ctx.lineWidth = 1.4;
+        ctx.strokeRect(xCenter - barBodyWidth / 2 - 1, bodyTop - 1, barBodyWidth + 2, bodyHeight + 2);
+      }
+
+      // Candlestick Pattern Tag
       const prevCandle = i > 0 ? visibleCandles[i - 1] : undefined;
       const pattern = detectCandlestickPattern(c, prevCandle);
       if (pattern && i > count - 8) {
@@ -313,9 +402,20 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
     }
 
-    // Render Overlays: SMMA 5 (Amber) & SMMA 50 (Purple)
+    // Liquidity Sweep Markers
+    if (showSMC && sweeps.length > 0) {
+      for (const sw of sweeps.slice(-6)) {
+        const xCenter = sw.index * candleWidth + candleWidth / 2;
+        const yMark = sw.type === 'BULLISH_SWEEP' ? getY(sw.wickExtreme) + 12 : getY(sw.wickExtreme) - 8;
+        ctx.fillStyle = sw.type === 'BULLISH_SWEEP' ? '#22d3ee' : '#fbbf24';
+        ctx.font = 'bold 8px JetBrains Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('SWEEP', xCenter, yMark);
+      }
+    }
+
+    // Overlays: SMMA 5 (Amber) & SMMA 50 (Purple)
     if (showSMMA) {
-      // SMMA 5
       ctx.strokeStyle = '#f59e0b';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -335,7 +435,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
       ctx.stroke();
 
-      // SMMA 50
       ctx.strokeStyle = '#818cf8';
       ctx.lineWidth = 1.8;
       ctx.beginPath();
@@ -356,7 +455,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.stroke();
     }
 
-    // Render Overlays: VWAP (Golden Yellow)
+    // Overlays: VWAP
     if (showVWAP) {
       ctx.strokeStyle = '#eab308';
       ctx.lineWidth = 1.4;
@@ -380,9 +479,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.setLineDash([]);
     }
 
-    // Render Active Trade Levels
+    // Active Trade Levels
     if (activeTrade) {
-      // Entry Line (Cyan)
       const entryY = getY(activeTrade.entryPrice);
       ctx.strokeStyle = '#06b6d4';
       ctx.lineWidth = 1.5;
@@ -392,15 +490,13 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.lineTo(plotWidth, entryY);
       ctx.stroke();
 
-      // Entry Badge
       ctx.fillStyle = '#06b6d4';
       ctx.fillRect(plotWidth, entryY - 9, rightMargin - 4, 18);
       ctx.fillStyle = '#0f172a';
       ctx.font = 'bold 9px JetBrains Mono, monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`ENTRY`, plotWidth + (rightMargin - 4) / 2, entryY + 3);
+      ctx.fillText('ENTRY', plotWidth + (rightMargin - 4) / 2, entryY + 3);
 
-      // Stop Loss Line (Rose)
       const slY = getY(activeTrade.stopLoss);
       ctx.strokeStyle = '#f43f5e';
       ctx.lineWidth = 1.5;
@@ -412,9 +508,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.fillStyle = '#f43f5e';
       ctx.fillRect(plotWidth, slY - 9, rightMargin - 4, 18);
       ctx.fillStyle = '#ffffff';
-      ctx.fillText(`SL`, plotWidth + (rightMargin - 4) / 2, slY + 3);
+      ctx.fillText('SL', plotWidth + (rightMargin - 4) / 2, slY + 3);
 
-      // Take Profit Line (Emerald)
       const tpY = getY(activeTrade.takeProfit);
       ctx.strokeStyle = '#10b981';
       ctx.lineWidth = 1.5;
@@ -426,24 +521,80 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.fillStyle = '#10b981';
       ctx.fillRect(plotWidth, tpY - 9, rightMargin - 4, 18);
       ctx.fillStyle = '#ffffff';
-      ctx.fillText(`TP1`, plotWidth + (rightMargin - 4) / 2, tpY + 3);
+      ctx.fillText('TP1', plotWidth + (rightMargin - 4) / 2, tpY + 3);
 
       ctx.setLineDash([]);
     }
 
-    // Render Crosshair
+    // Active Price Alerts on Canvas
+    if (alerts && alerts.length > 0) {
+      const activeSymbolAlerts = alerts.filter((a) => a.symbol === symbol && a.status === 'ACTIVE');
+      for (const alert of activeSymbolAlerts) {
+        if (alert.targetPrice >= minPrice && alert.targetPrice <= maxPrice) {
+          const alertY = getY(alert.targetPrice);
+          ctx.strokeStyle = '#f59e0b';
+          ctx.lineWidth = 1.4;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(0, alertY);
+          ctx.lineTo(plotWidth, alertY);
+          ctx.stroke();
+
+          ctx.fillStyle = '#f59e0b';
+          ctx.fillRect(plotWidth, alertY - 9, rightMargin - 4, 18);
+          ctx.fillStyle = '#0f172a';
+          ctx.font = 'bold 9px JetBrains Mono, monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('ALERT', plotWidth + (rightMargin - 4) / 2, alertY + 3);
+          ctx.setLineDash([]);
+        }
+      }
+    }
+
+    // Real-time Live Price Line
+    if (visibleCandles.length > 0) {
+      const latestCandle = visibleCandles[visibleCandles.length - 1];
+      const livePrice = latestCandle.close;
+      if (livePrice >= minPrice && livePrice <= maxPrice) {
+        const livePriceY = getY(livePrice);
+        const isUp = latestCandle.close >= latestCandle.open;
+        const liveColor = isUp ? '#10b981' : '#f43f5e';
+
+        ctx.strokeStyle = liveColor;
+        ctx.lineWidth = 1.3;
+        ctx.setLineDash([4, 2]);
+        ctx.beginPath();
+        ctx.moveTo(0, livePriceY);
+        ctx.lineTo(plotWidth, livePriceY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = liveColor;
+        ctx.fillRect(plotWidth, livePriceY - 10, rightMargin, 20);
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'bold 10px JetBrains Mono, monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(livePrice.toFixed(digits), plotWidth + rightMargin / 2, livePriceY + 3.5);
+
+        const lastCandleX = (visibleCandles.length - 1) * candleWidth + candleWidth / 2;
+        ctx.beginPath();
+        ctx.arc(lastCandleX, livePriceY, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = liveColor;
+        ctx.fill();
+      }
+    }
+
+    // Crosshair
     if (mousePos && mousePos.x < plotWidth && mousePos.y < plotHeight) {
       ctx.strokeStyle = '#94a3b8';
       ctx.lineWidth = 0.8;
       ctx.setLineDash([3, 3]);
 
-      // Vertical line
       ctx.beginPath();
       ctx.moveTo(mousePos.x, 0);
       ctx.lineTo(mousePos.x, plotHeight);
       ctx.stroke();
 
-      // Horizontal line
       ctx.beginPath();
       ctx.moveTo(0, mousePos.y);
       ctx.lineTo(plotWidth, mousePos.y);
@@ -451,7 +602,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
       ctx.setLineDash([]);
 
-      // Current Cursor Price
       const cursorPrice = minPrice + ((plotHeight - mousePos.y) / plotHeight) * priceRange;
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(plotWidth, mousePos.y - 10, rightMargin, 20);
@@ -466,21 +616,33 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     candles,
     visibleCount,
     showSMMA,
-    showEMA,
     showBB,
     showVWAP,
     showSR,
+    showFVG,
+    showOB,
+    showSMC,
+    showVP,
     mousePos,
     activeTrade,
+    alerts,
+    symbol,
+    timeframe,
+    utcOffsetHours,
     smma5,
     smma50,
     bb,
     vwap,
     structure,
+    fvgs,
+    orderBlocks,
+    sweeps,
+    displacements,
+    volumeProfile,
     digits,
   ]);
 
-  // Sub-Indicator Canvas Render Loop (RSI, MACD, Stochastic, ATR/ADX)
+  // Sub-Indicator Canvas Render Loop
   useEffect(() => {
     const canvas = subCanvasRef.current;
     if (!canvas) return;
@@ -499,25 +661,19 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     const startIndex = Math.max(0, candles.length - visibleCount);
     const count = Math.min(visibleCount, candles.length - startIndex);
-    const rightMargin = 68;
+    const rightMargin = 72;
     const plotWidth = width - rightMargin;
     const candleWidth = plotWidth / count;
 
-    // Draw Sub-indicator
     if (subIndicator === 'RSI') {
-      // 0 to 100 scale
       const getY = (val: number) => height - (val / 100) * height;
-
-      // 70 and 30 Overbought/Oversold lines
       ctx.strokeStyle = '#334155';
       ctx.lineWidth = 1;
       ctx.setLineDash([3, 3]);
-
       ctx.beginPath();
       ctx.moveTo(0, getY(70));
       ctx.lineTo(plotWidth, getY(70));
       ctx.stroke();
-
       ctx.beginPath();
       ctx.moveTo(0, getY(30));
       ctx.lineTo(plotWidth, getY(30));
@@ -529,8 +685,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.fillText('70', plotWidth + 6, getY(70) + 3);
       ctx.fillText('30', plotWidth + 6, getY(30) + 3);
 
-      // Plot RSI line
-      ctx.strokeStyle = '#a855f7'; // Purple
+      ctx.strokeStyle = '#a855f7';
       ctx.lineWidth = 1.8;
       ctx.beginPath();
       let started = false;
@@ -549,7 +704,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
       ctx.stroke();
     } else if (subIndicator === 'MACD') {
-      // Calculate MACD min/max in view
       let maxH = 0.001;
       for (let i = 0; i < count; i++) {
         const h = Math.abs(macd.histogram[startIndex + i] || 0);
@@ -558,10 +712,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         if (m > maxH) maxH = m;
       }
       maxH *= 1.2;
-
       const getY = (val: number) => height / 2 - (val / maxH) * (height / 2);
 
-      // Zero line
       ctx.strokeStyle = '#334155';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -569,7 +721,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.lineTo(plotWidth, height / 2);
       ctx.stroke();
 
-      // Histogram bars
       for (let i = 0; i < count; i++) {
         const h = macd.histogram[startIndex + i];
         if (h !== null && h !== undefined) {
@@ -577,11 +728,10 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           const y = getY(h);
           const barH = height / 2 - y;
           ctx.fillStyle = h >= 0 ? '#10b981' : '#f43f5e';
-          ctx.fillRect(x - (candleWidth * 0.3), h >= 0 ? y : height / 2, candleWidth * 0.6, Math.abs(barH));
+          ctx.fillRect(x - candleWidth * 0.3, h >= 0 ? y : height / 2, candleWidth * 0.6, Math.abs(barH));
         }
       }
 
-      // MACD Line
       ctx.strokeStyle = '#38bdf8';
       ctx.lineWidth = 1.4;
       ctx.beginPath();
@@ -601,7 +751,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
       ctx.stroke();
 
-      // Signal Line
       ctx.strokeStyle = '#f97316';
       ctx.lineWidth = 1.4;
       ctx.beginPath();
@@ -622,7 +771,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.stroke();
     } else if (subIndicator === 'STOCH') {
       const getY = (val: number) => height - (val / 100) * height;
-
       ctx.strokeStyle = '#334155';
       ctx.setLineDash([3, 3]);
       ctx.beginPath();
@@ -635,7 +783,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // %K Line (Cyan)
       ctx.strokeStyle = '#06b6d4';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -655,7 +802,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
       ctx.stroke();
 
-      // %D Line (Orange)
       ctx.strokeStyle = '#f97316';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -675,10 +821,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
       ctx.stroke();
     } else if (subIndicator === 'ATR_ADX') {
-      // ADX scale 0 to 60
       const getY = (val: number) => height - (val / 60) * height;
-
-      // 20 and 25 threshold lines
       ctx.strokeStyle = '#334155';
       ctx.setLineDash([3, 3]);
       ctx.beginPath();
@@ -687,7 +830,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // ADX Line (Yellow)
       ctx.strokeStyle = '#eab308';
       ctx.lineWidth = 1.8;
       ctx.beginPath();
@@ -707,7 +849,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
       ctx.stroke();
 
-      // +DI (Green)
       ctx.strokeStyle = '#10b981';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -727,7 +868,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
       }
       ctx.stroke();
 
-      // -DI (Red)
       ctx.strokeStyle = '#f43f5e';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -749,7 +889,6 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     }
   }, [candles, visibleCount, subIndicator, rsi, macd, stoch, adx]);
 
-  // Mouse hover handlers
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -760,7 +899,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
 
     const startIndex = Math.max(0, candles.length - visibleCount);
     const count = Math.min(visibleCount, candles.length - startIndex);
-    const plotWidth = canvas.clientWidth - 68;
+    const plotWidth = canvas.clientWidth - 72;
     const candleWidth = plotWidth / count;
     const idx = Math.floor(x / candleWidth);
     if (idx >= 0 && idx < count) {
@@ -775,21 +914,64 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     setHoverIndex(null);
   };
 
+  const [countdown, setCountdown] = useState<string>('00:00');
+  useEffect(() => {
+    const updateCountdown = () => {
+      const tfMinutes =
+        timeframe === 'M1' ? 1 : timeframe === 'M5' ? 5 : timeframe === 'M15' ? 15 : timeframe === 'H1' ? 60 : 240;
+      const stepSec = tfMinutes * 60;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const rem = stepSec - (nowSec % stepSec);
+      const m = Math.floor(rem / 60);
+      const s = rem % 60;
+      setCountdown(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+    };
+    updateCountdown();
+    const timer = setInterval(updateCountdown, 1000);
+    return () => clearInterval(timer);
+  }, [timeframe]);
+
+  const handleCaptureChart = () => {
+    if (!canvasRef.current || !onCaptureToVision) return;
+    try {
+      const dataUrl = canvasRef.current.toDataURL('image/png');
+      onCaptureToVision(dataUrl);
+    } catch {
+      // ignore capture error
+    }
+  };
+
   const activeCandle = hoverIndex !== null && candles[hoverIndex] ? candles[hoverIndex] : candles[candles.length - 1];
 
   return (
     <div className="flex flex-col h-full bg-[#0a0e17] rounded-xl border border-slate-800 overflow-hidden shadow-2xl">
       {/* Chart Toolbar */}
       <div className="flex flex-wrap items-center justify-between px-3 py-2 border-b border-slate-800/80 bg-[#0e1424] gap-2">
-        {/* Symbol & Timeframe buttons */}
-        <div className="flex items-center gap-2">
-          <span className="font-extrabold text-sm font-mono text-white tracking-wide">{symbol}</span>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <span className="font-extrabold text-sm font-mono text-white tracking-wide">{symbol}</span>
+            {candles.length === 0 ? (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-950/80 text-rose-300 border border-rose-800/60 text-[10px] font-mono font-bold">
+                NO FEED
+              </span>
+            ) : ticker?.feedType === 'LIVE_BROKER' ? (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 text-[10px] font-mono font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                MT5 DEMO
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-800/60 text-[10px] font-mono font-bold">
+                SIMULATED
+              </span>
+            )}
+          </div>
+
           <div className="flex items-center gap-1 bg-[#162038] p-0.5 rounded-md border border-slate-700/60">
             {timeframes.map((tf) => (
               <button
                 key={tf}
                 onClick={() => onSelectTimeframe(tf)}
-                className={`px-2 py-0.5 text-xs font-mono font-semibold rounded transition-colors ${
+                className={`px-2 py-0.5 text-xs font-mono font-semibold rounded transition-colors cursor-pointer ${
                   timeframe === tf
                     ? 'bg-cyan-500 text-slate-950 font-bold shadow'
                     : 'text-slate-400 hover:text-slate-200'
@@ -799,78 +981,133 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               </button>
             ))}
           </div>
+
+          {ticker && ticker.status === 'OPEN' && ticker.bid > 0 && (
+            <div className="hidden lg:flex items-center gap-2 text-[11px] font-mono tabular-nums bg-[#111827] px-2 py-0.5 rounded border border-slate-800">
+              <span className="text-slate-400">
+                Bid: <strong className="text-white">{ticker.bid.toFixed(digits)}</strong>
+              </span>
+              <span className="text-slate-600">|</span>
+              <span className="text-slate-400">
+                Ask: <strong className="text-white">{ticker.ask.toFixed(digits)}</strong>
+              </span>
+              <span className="text-slate-600">|</span>
+              <span className="text-cyan-400 font-semibold">
+                Spr: {ticker.category === 'FOREX' ? `${(ticker.spreadPoints / 0.0001).toFixed(1)} pips` : `${ticker.spreadPoints.toFixed(digits)}`}
+              </span>
+            </div>
+          )}
+
+          <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-mono tabular-nums text-slate-300 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700">
+            Close: <strong className="text-cyan-300">{countdown}</strong>
+          </span>
         </div>
 
-        {/* OHLC Bar Statistics */}
         {activeCandle && (
-          <div className="hidden md:flex items-center gap-3 text-[11px] font-mono text-slate-400">
-            <span>
-              O: <span className="text-slate-200">{activeCandle.open.toFixed(digits)}</span>
-            </span>
-            <span>
-              H: <span className="text-slate-200">{activeCandle.high.toFixed(digits)}</span>
-            </span>
-            <span>
-              L: <span className="text-slate-200">{activeCandle.low.toFixed(digits)}</span>
-            </span>
+          <div className="hidden xl:flex items-center gap-3 text-[11px] font-mono tabular-nums text-slate-400">
+            <span>O: <span className="text-slate-200">{activeCandle.open.toFixed(digits)}</span></span>
+            <span>H: <span className="text-slate-200">{activeCandle.high.toFixed(digits)}</span></span>
+            <span>L: <span className="text-slate-200">{activeCandle.low.toFixed(digits)}</span></span>
             <span>
               C:{' '}
-              <span
-                className={`font-semibold ${
-                  activeCandle.close >= activeCandle.open ? 'text-emerald-400' : 'text-rose-400'
-                }`}
-              >
+              <span className={`font-semibold ${activeCandle.close >= activeCandle.open ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {activeCandle.close.toFixed(digits)}
               </span>
-            </span>
-            <span>
-              V: <span className="text-slate-300">{activeCandle.volume.toLocaleString()}</span>
             </span>
           </div>
         )}
 
-        {/* Indicator Overlays Toggles */}
-        <div className="flex items-center gap-1.5 flex-wrap">
+        {/* Indicator & SMC Overlays Toggles */}
+        <div className="flex items-center gap-1 flex-wrap">
           <button
             onClick={() => setShowSMMA(!showSMMA)}
-            className={`px-2 py-1 text-[11px] font-mono font-medium rounded border transition-colors ${
-              showSMMA
-                ? 'bg-amber-950/60 text-amber-300 border-amber-600/50'
-                : 'bg-slate-900 text-slate-500 border-slate-800'
+            className={`px-2 py-0.5 text-[10px] font-mono font-medium rounded border transition-colors cursor-pointer ${
+              showSMMA ? 'bg-amber-950/60 text-amber-300 border-amber-600/50' : 'bg-slate-900 text-slate-500 border-slate-800'
             }`}
           >
             SMMA 5/50
           </button>
           <button
-            onClick={() => setShowBB(!showBB)}
-            className={`px-2 py-1 text-[11px] font-mono font-medium rounded border transition-colors ${
-              showBB
-                ? 'bg-sky-950/60 text-sky-300 border-sky-600/50'
-                : 'bg-slate-900 text-slate-500 border-slate-800'
+            onClick={() => setShowFVG(!showFVG)}
+            className={`px-2 py-0.5 text-[10px] font-mono font-medium rounded border transition-colors cursor-pointer ${
+              showFVG ? 'bg-emerald-950/60 text-emerald-300 border-emerald-600/50' : 'bg-slate-900 text-slate-500 border-slate-800'
             }`}
           >
-            BB (20,2)
+            FVG
+          </button>
+          <button
+            onClick={() => setShowOB(!showOB)}
+            className={`px-2 py-0.5 text-[10px] font-mono font-medium rounded border transition-colors cursor-pointer ${
+              showOB ? 'bg-sky-950/60 text-sky-300 border-sky-600/50' : 'bg-slate-900 text-slate-500 border-slate-800'
+            }`}
+          >
+            Order Blocks
+          </button>
+          <button
+            onClick={() => setShowSMC(!showSMC)}
+            className={`px-2 py-0.5 text-[10px] font-mono font-medium rounded border transition-colors cursor-pointer ${
+              showSMC ? 'bg-cyan-950/60 text-cyan-300 border-cyan-600/50' : 'bg-slate-900 text-slate-500 border-slate-800'
+            }`}
+          >
+            Sweeps/Disp
+          </button>
+          <button
+            onClick={() => setShowVP(!showVP)}
+            className={`px-2 py-0.5 text-[10px] font-mono font-medium rounded border transition-colors cursor-pointer ${
+              showVP ? 'bg-amber-950/60 text-amber-300 border-amber-600/50' : 'bg-slate-900 text-slate-500 border-slate-800'
+            }`}
+          >
+            Vol Profile
           </button>
           <button
             onClick={() => setShowVWAP(!showVWAP)}
-            className={`px-2 py-1 text-[11px] font-mono font-medium rounded border transition-colors ${
-              showVWAP
-                ? 'bg-yellow-950/60 text-yellow-300 border-yellow-600/50'
-                : 'bg-slate-900 text-slate-500 border-slate-800'
+            className={`px-2 py-0.5 text-[10px] font-mono font-medium rounded border transition-colors cursor-pointer ${
+              showVWAP ? 'bg-yellow-950/60 text-yellow-300 border-yellow-600/50' : 'bg-slate-900 text-slate-500 border-slate-800'
             }`}
           >
             VWAP
           </button>
           <button
-            onClick={() => setShowSR(!showSR)}
-            className={`px-2 py-1 text-[11px] font-mono font-medium rounded border transition-colors ${
-              showSR
-                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-600/50'
-                : 'bg-slate-900 text-slate-500 border-slate-800'
+            onClick={() => setShowBB(!showBB)}
+            className={`px-2 py-0.5 text-[10px] font-mono font-medium rounded border transition-colors cursor-pointer ${
+              showBB ? 'bg-sky-950/60 text-sky-300 border-sky-600/50' : 'bg-slate-900 text-slate-500 border-slate-800'
             }`}
           >
-            S/R Zones
+            BB
           </button>
+          <button
+            onClick={() => setShowSR(!showSR)}
+            className={`px-2 py-0.5 text-[10px] font-mono font-medium rounded border transition-colors cursor-pointer ${
+              showSR ? 'bg-emerald-950/60 text-emerald-300 border-emerald-600/50' : 'bg-slate-900 text-slate-500 border-slate-800'
+            }`}
+          >
+            S/R
+          </button>
+
+          {onCaptureToVision && (
+            <button
+              onClick={handleCaptureChart}
+              className="px-2 py-0.5 text-[10px] font-mono font-bold rounded border bg-purple-950/60 text-purple-300 border-purple-600/50 hover:bg-purple-900/60 transition-colors flex items-center gap-1 cursor-pointer"
+              title="Send current chart snapshot to Vision Analysis"
+            >
+              <Camera className="w-3 h-3" />
+              <span>Vision Scan</span>
+            </button>
+          )}
+
+          {onOpenAlertsModal && (
+            <button
+              onClick={onOpenAlertsModal}
+              className="px-2 py-0.5 text-[10px] font-mono font-bold rounded border bg-amber-950/60 text-amber-300 border-amber-600/50 hover:bg-amber-900/60 transition-colors flex items-center gap-1 cursor-pointer"
+              title="Manage Price Alerts"
+            >
+              <span>Alerts ({alerts.filter((a) => a.symbol === symbol && a.status === 'ACTIVE').length})</span>
+            </button>
+          )}
+
+          <span className="px-2 py-0.5 text-[10px] font-mono font-bold rounded bg-slate-800 text-cyan-300 border border-slate-700">
+            UTC+2
+          </span>
         </div>
       </div>
 
@@ -882,6 +1119,18 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           onMouseLeave={handleMouseLeave}
           className="w-full h-full block cursor-crosshair"
         />
+        {candles.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center p-6 pointer-events-none">
+            <div className="max-w-md text-center bg-[#0e1424]/90 border border-slate-700 rounded-xl p-4 font-mono text-xs space-y-1.5 shadow-xl">
+              <div className="font-bold text-amber-300">
+                MT5 DEMO MARKET DATA DISCONNECTED
+              </div>
+              <p className="text-slate-400 text-[11px]">
+                No live MT5 Demo EA price stream is connected. Connect your local MetaTrader 5 Demo EA in Settings or switch to Simulation Sandbox.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Sub-Indicator Toolbar & Area */}
@@ -893,7 +1142,7 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
               <button
                 key={sub}
                 onClick={() => setSubIndicator(sub)}
-                className={`px-2 py-0.5 text-[10px] font-mono font-semibold rounded ${
+                className={`px-2 py-0.5 text-[10px] font-mono font-semibold rounded cursor-pointer ${
                   subIndicator === sub
                     ? 'bg-purple-900/60 text-purple-300 border border-purple-500/50'
                     : 'text-slate-400 hover:text-slate-200'
@@ -905,9 +1154,9 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
           </div>
 
           <div className="text-[10px] font-mono text-slate-500">
-            {subIndicator === 'RSI' && 'Wilder RSI (14) - Overbought: 70 | Oversold: 30'}
-            {subIndicator === 'MACD' && 'MACD (12, 26, 9) - Histogram & Signal'}
-            {subIndicator === 'STOCH' && 'Stochastic Oscillator (14, 3, 3)'}
+            {subIndicator === 'RSI' && 'Wilder RSI (14) · OB: 70 / OS: 30'}
+            {subIndicator === 'MACD' && 'MACD (12, 26, 9)'}
+            {subIndicator === 'STOCH' && 'Stochastic (14, 3, 3)'}
             {subIndicator === 'ATR_ADX' && 'ADX (14) Trend Strength & +DI/-DI'}
           </div>
         </div>

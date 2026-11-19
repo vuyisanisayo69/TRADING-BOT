@@ -8,11 +8,13 @@ import {
   Play,
   BrainCircuit,
   Info,
+  FilePlus2,
 } from 'lucide-react';
 
 interface SignalCardProps {
   signal: TradingSignal | null;
   onExecuteSignal: (signal: TradingSignal) => void;
+  onCreateProposal?: (signal: TradingSignal) => void;
   onAskAI: (signal: TradingSignal) => void;
   isLoadingAI?: boolean;
 }
@@ -20,6 +22,7 @@ interface SignalCardProps {
 export const SignalCard: React.FC<SignalCardProps> = ({
   signal,
   onExecuteSignal,
+  onCreateProposal,
   onAskAI,
   isLoadingAI = false,
 }) => {
@@ -35,6 +38,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
   const isNoTrade = signal.action === 'NO_TRADE';
   const isLong = signal.action === 'LONG';
   const score = signal.qualityScore;
+  const digits = signal.entryZone.recommended < 10 ? 4 : signal.entryZone.recommended < 200 ? 3 : 2;
 
   return (
     <div className="bg-[#0e1424] rounded-xl border border-slate-800 p-4 shadow-xl">
@@ -42,7 +46,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
       <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
         <div className="flex items-center gap-2">
           <div
-            className={`px-3 py-1 rounded-md font-mono text-xs font-extrabold uppercase tracking-wider border ${
+            className={`px-3 py-1 rounded-md font-mono text-xs font-extrabold uppercase tracking-wider border whitespace-nowrap ${
               isNoTrade
                 ? 'bg-slate-800 text-slate-300 border-slate-700'
                 : isLong
@@ -53,15 +57,24 @@ export const SignalCard: React.FC<SignalCardProps> = ({
             {isNoTrade ? 'NO TRADE' : `${signal.action} SIGNAL`}
           </div>
           <span className="text-xs font-mono font-bold text-slate-300">{signal.symbol}</span>
+          <span
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
+              signal.botMode === 'BRAIN'
+                ? 'bg-cyan-950/70 text-cyan-300 border-cyan-700/60'
+                : 'bg-amber-950/70 text-amber-300 border-amber-700/60'
+            }`}
+          >
+            {signal.botMode}
+          </span>
         </div>
 
         {/* Transparent Rule Score */}
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-mono text-slate-400">RULE SCORE:</span>
-          <div className="flex items-center gap-1.5 bg-[#121a2f] px-2 py-0.5 rounded border border-slate-800">
+          <span className="text-[11px] font-mono text-slate-400">SCORE:</span>
+          <div className="flex items-center gap-1.5 bg-[#121a2f] px-2 py-0.5 rounded border border-slate-800 tabular-nums">
             <span
               className={`font-mono font-bold text-sm ${
-                score >= 70 ? 'text-emerald-400' : score >= 50 ? 'text-amber-400' : 'text-slate-400'
+                score >= 68 ? 'text-emerald-400' : score >= 50 ? 'text-amber-400' : 'text-slate-400'
               }`}
             >
               {score}
@@ -73,18 +86,22 @@ export const SignalCard: React.FC<SignalCardProps> = ({
 
       {/* Trade Parameters Grid */}
       {!isNoTrade ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 my-3 p-3 bg-[#111728] rounded-lg border border-slate-800 text-xs font-mono">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 my-3 p-3 bg-[#111728] rounded-lg border border-slate-800 text-xs font-mono tabular-nums">
           <div>
             <span className="text-[10px] text-slate-500 block">ENTRY ZONE</span>
-            <span className="font-bold text-slate-100">{signal.entryZone.recommended.toFixed(2)}</span>
+            <span className="font-bold text-slate-100">{signal.entryZone.recommended.toFixed(digits)}</span>
           </div>
           <div>
             <span className="text-[10px] text-rose-400 block">STOP LOSS</span>
-            <span className="font-bold text-rose-300">{signal.stopLoss.toFixed(2)}</span>
+            <span className="font-bold text-rose-300">{signal.stopLoss.toFixed(digits)}</span>
           </div>
           <div>
-            <span className="text-[10px] text-emerald-400 block">TP1 (1.8R)</span>
-            <span className="font-bold text-emerald-300">{signal.takeProfit1.toFixed(2)}</span>
+            <span className="text-[10px] text-emerald-400 block">TP1</span>
+            <span className="font-bold text-emerald-300">{signal.takeProfit1.toFixed(digits)}</span>
+          </div>
+          <div>
+            <span className="text-[10px] text-emerald-400 block">TP2</span>
+            <span className="font-bold text-emerald-300">{signal.takeProfit2.toFixed(digits)}</span>
           </div>
           <div>
             <span className="text-[10px] text-cyan-400 block">R:R RATIO</span>
@@ -95,16 +112,17 @@ export const SignalCard: React.FC<SignalCardProps> = ({
         <div className="my-3 p-3 bg-slate-900/50 rounded-lg border border-slate-800 text-xs font-mono text-slate-400">
           <span className="text-amber-400 font-bold block mb-1">CAPITAL PRESERVATION DEFAULT:</span>
           <p className="text-[11px] leading-relaxed">
-            Market setup failed required confidence threshold (70/100) or violates strict multi-timeframe alignment.
-            No trade is placed until all 7 institutional criteria are satisfied.
+            {signal.botMode === 'CLASSIC'
+              ? 'Classic Mode awaits aligned SMMA 5/50 slope, RSI pullback confirmation, ATR expansion, and HTF trend alignment.'
+              : 'Brain Mode awaits high-confluence score across HTF Direction, SMMA 5/50, FVGs, Liquidity Sweeps, Displacement, Order Blocks, and Volume Profile.'}
           </p>
         </div>
       )}
 
-      {/* 7-Step Institutional Rule Checklist */}
+      {/* Strategy Rule Checklist */}
       <div className="space-y-1.5 my-3">
         <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block">
-          10-STEP STRATEGY AUDIT CHECKLIST
+          {signal.botMode} BOT CONFLUENCE CHECKLIST
         </span>
         <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
           {signal.ruleChecks.map((rule) => (
@@ -165,14 +183,24 @@ export const SignalCard: React.FC<SignalCardProps> = ({
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
+      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800">
         {!isNoTrade && (
           <button
             onClick={() => onExecuteSignal(signal)}
             className="flex-1 py-2 px-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md shadow-cyan-600/20 transition-all cursor-pointer"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
-            Quick Execute Setup
+            Quick Execute
+          </button>
+        )}
+        {!isNoTrade && onCreateProposal && (
+          <button
+            onClick={() => onCreateProposal(signal)}
+            className="flex-1 py-2 px-3 rounded-lg bg-emerald-950/70 hover:bg-emerald-900/70 text-emerald-300 border border-emerald-700/60 font-mono text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+            title="Create evidence-backed APX ticket with stressed-stop risk check"
+          >
+            <FilePlus2 className="w-3.5 h-3.5" />
+            Draft APX Ticket
           </button>
         )}
         <button
@@ -181,7 +209,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({
           className="flex-1 py-2 px-3 rounded-lg bg-purple-950/60 hover:bg-purple-900/60 text-purple-300 border border-purple-700/60 font-mono text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
         >
           <BrainCircuit className="w-3.5 h-3.5 text-purple-400" />
-          {isLoadingAI ? 'Analyzing...' : 'Ask AI to Explain Setup'}
+          {isLoadingAI ? 'Analyzing...' : 'Ask AI'}
         </button>
       </div>
     </div>

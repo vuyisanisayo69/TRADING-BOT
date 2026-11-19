@@ -27,6 +27,7 @@ export interface MarketTicker {
   high24h: number;
   low24h: number;
   change24hUSD: number;
+  category?: 'FOREX' | 'METALS' | 'CRYPTO';
   change24hPercent: number;
   volume24h: number;
   status: 'OPEN' | 'CLOSED';
@@ -38,6 +39,7 @@ export const INITIAL_TICKERS: Record<string, MarketTicker> = {
   'XAU/USD': {
     symbol: 'XAU/USD',
     name: 'Gold vs US Dollar',
+    category: 'METALS',
     bid: 2654.35,
     ask: 2654.60,
     spreadPoints: 0.25,
@@ -53,6 +55,7 @@ export const INITIAL_TICKERS: Record<string, MarketTicker> = {
   'BTC/USD': {
     symbol: 'BTC/USD',
     name: 'Bitcoin vs US Dollar',
+    category: 'CRYPTO',
     bid: 68420.5,
     ask: 68432.5,
     spreadPoints: 12.0,
@@ -68,6 +71,7 @@ export const INITIAL_TICKERS: Record<string, MarketTicker> = {
   'EUR/USD': {
     symbol: 'EUR/USD',
     name: 'Euro vs US Dollar',
+    category: 'FOREX',
     bid: 1.08452,
     ask: 1.08464,
     spreadPoints: 0.00012,
@@ -76,6 +80,70 @@ export const INITIAL_TICKERS: Record<string, MarketTicker> = {
     change24hUSD: 0.0018,
     change24hPercent: 0.17,
     volume24h: 520400,
+    status: 'OPEN',
+    feedType: 'SIMULATED_HIGH_FIDELITY',
+    digits: 5,
+  },
+  'GBP/USD': {
+    symbol: 'GBP/USD',
+    name: 'British Pound vs US Dollar',
+    category: 'FOREX',
+    bid: 1.29845,
+    ask: 1.29861,
+    spreadPoints: 0.00016,
+    high24h: 1.30420,
+    low24h: 1.29410,
+    change24hUSD: 0.0024,
+    change24hPercent: 0.19,
+    volume24h: 410800,
+    status: 'OPEN',
+    feedType: 'SIMULATED_HIGH_FIDELITY',
+    digits: 5,
+  },
+  'USD/JPY': {
+    symbol: 'USD/JPY',
+    name: 'US Dollar vs Japanese Yen',
+    category: 'FOREX',
+    bid: 149.645,
+    ask: 149.659,
+    spreadPoints: 0.014,
+    high24h: 150.210,
+    low24h: 149.120,
+    change24hUSD: -0.32,
+    change24hPercent: -0.21,
+    volume24h: 489200,
+    status: 'OPEN',
+    feedType: 'SIMULATED_HIGH_FIDELITY',
+    digits: 3,
+  },
+  'AUD/USD': {
+    symbol: 'AUD/USD',
+    name: 'Australian Dollar vs US Dollar',
+    category: 'FOREX',
+    bid: 0.65520,
+    ask: 0.65534,
+    spreadPoints: 0.00014,
+    high24h: 0.65910,
+    low24h: 0.65180,
+    change24hUSD: 0.0012,
+    change24hPercent: 0.18,
+    volume24h: 310500,
+    status: 'OPEN',
+    feedType: 'SIMULATED_HIGH_FIDELITY',
+    digits: 5,
+  },
+  'USD/CAD': {
+    symbol: 'USD/CAD',
+    name: 'US Dollar vs Canadian Dollar',
+    category: 'FOREX',
+    bid: 1.38420,
+    ask: 1.38435,
+    spreadPoints: 0.00015,
+    high24h: 1.38950,
+    low24h: 1.38120,
+    change24hUSD: -0.0016,
+    change24hPercent: -0.12,
+    volume24h: 298400,
     status: 'OPEN',
     feedType: 'SIMULATED_HIGH_FIDELITY',
     digits: 5,
@@ -140,7 +208,11 @@ export function generateSyntheticHistory(
   const candles: Candle[] = [];
   const now = Math.floor(Date.now() / 1000);
   const stepSeconds = timeframeMinutes * 60;
-  let startTime = now - count * stepSeconds;
+  const currentPeriodBoundary = Math.floor(now / stepSeconds) * stepSeconds;
+  const startTime = currentPeriodBoundary - (count - 1) * stepSeconds;
+
+  const digits =
+    symbol === 'BTC/USD' ? 1 : symbol === 'USD/JPY' ? 3 : symbol.includes('/') && !symbol.includes('XAU') ? 5 : 2;
 
   let currentClose = basePrice;
   const volatility = symbol === 'BTC/USD' ? 0.0025 : symbol === 'XAU/USD' ? 0.0012 : 0.0004;
@@ -153,11 +225,11 @@ export function generateSyntheticHistory(
     const cycle = Math.sin(i / 15) * volatility * 1.5;
     const randomShock = (Math.random() - 0.495) * volatility * 2;
     const delta = open * (trendBias + cycle + randomShock);
-    const close = Number((open + delta).toFixed(symbol === 'EUR/USD' ? 5 : symbol === 'BTC/USD' ? 1 : 2));
+    const close = Number((open + delta).toFixed(digits));
 
     const wickSpread = Math.abs(delta) * (1 + Math.random() * 1.2) + open * (volatility * 0.4);
-    const high = Number((Math.max(open, close) + wickSpread * Math.random()).toFixed(symbol === 'EUR/USD' ? 5 : symbol === 'BTC/USD' ? 1 : 2));
-    const low = Number((Math.min(open, close) - wickSpread * Math.random()).toFixed(symbol === 'EUR/USD' ? 5 : symbol === 'BTC/USD' ? 1 : 2));
+    const high = Number((Math.max(open, close) + wickSpread * Math.random()).toFixed(digits));
+    const low = Number((Math.min(open, close) - wickSpread * Math.random()).toFixed(digits));
 
     const volume = Math.floor(100 + Math.random() * 900 + Math.abs(delta) * 5000);
 
@@ -173,7 +245,57 @@ export function generateSyntheticHistory(
     currentClose = close;
   }
 
+  // Ensure the latest candle close equals basePrice
+  if (candles.length > 0) {
+    const last = candles[candles.length - 1];
+    last.close = basePrice;
+    last.high = Math.max(last.high, basePrice);
+    last.low = Math.min(last.low, basePrice);
+  }
+
   return candles;
+}
+
+/**
+ * Updates the latest live candle with new tick price, or opens a new candle bar
+ * when the timeframe period elapses.
+ */
+export function updateOrAppendLiveCandle(
+  candles: Candle[],
+  latestPrice: number,
+  timeframeMinutes: number,
+  nowSeconds: number = Math.floor(Date.now() / 1000)
+): Candle[] {
+  if (candles.length === 0) return candles;
+
+  const stepSeconds = timeframeMinutes * 60;
+  const currentPeriodBoundary = Math.floor(nowSeconds / stepSeconds) * stepSeconds;
+  const last = candles[candles.length - 1];
+
+  if (last.time < currentPeriodBoundary) {
+    // Current bar period elapsed! Close old bar and append a new real-time candle bar
+    const newCandle: Candle = {
+      time: currentPeriodBoundary,
+      open: last.close,
+      high: Math.max(last.close, latestPrice),
+      low: Math.min(last.close, latestPrice),
+      close: latestPrice,
+      volume: 1,
+    };
+    // Keep reasonable history length to prevent memory leaks
+    const trimmed = candles.length > 500 ? candles.slice(candles.length - 499) : candles;
+    return [...trimmed, newCandle];
+  } else {
+    // Still in the ongoing active bar: update high, low, close, and increment tick volume
+    const updatedLast: Candle = {
+      ...last,
+      high: Math.max(last.high, latestPrice),
+      low: Math.min(last.low, latestPrice),
+      close: latestPrice,
+      volume: last.volume + 1,
+    };
+    return [...candles.slice(0, -1), updatedLast];
+  }
 }
 
 /**
@@ -211,6 +333,7 @@ export function getActiveMarketSession(date: Date = new Date()): {
   isNYOpen: boolean;
   isAsianOpen: boolean;
   isLondonNYOverlap: boolean;
+  currentTimeUTC2: string;
 } {
   const utcHour = date.getUTCHours();
   const utcMinute = date.getUTCMinutes();
@@ -227,11 +350,15 @@ export function getActiveMarketSession(date: Date = new Date()): {
   else if (isLondonOpen) sessionName = 'London Session';
   else if (isAsianOpen) sessionName = 'Asian / Tokyo Session';
 
+  const dateUTC2 = new Date(date.getTime() + 2 * 3600 * 1000);
+  const currentTimeUTC2 = `${String(dateUTC2.getUTCHours()).padStart(2, '0')}:${String(dateUTC2.getUTCMinutes()).padStart(2, '0')} UTC+2`;
+
   return {
     sessionName,
     isLondonOpen,
     isNYOpen,
     isAsianOpen,
     isLondonNYOverlap,
+    currentTimeUTC2,
   };
 }

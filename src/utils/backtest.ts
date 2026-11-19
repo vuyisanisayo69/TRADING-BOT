@@ -28,6 +28,14 @@ export interface BacktestTrade {
   slippageUSD: number;
   netPnlUSD: number;
   durationMinutes: number;
+  ticketId?: string;
+  plannedEntry?: number;
+  plannedSL?: number;
+  plannedTP?: number;
+  stressedCostEstimateUSD?: number;
+  processGrade?: 'FOLLOWED_PLAN' | 'MINOR_DEVIATION' | 'PROCESS_BREACH' | 'UNPLANNED';
+  outcomeGrade?: 'WIN' | 'LOSS' | 'BREAKEVEN';
+  processNotes?: string;
 }
 
 export interface MonteCarloResult {

@@ -54,6 +54,54 @@ export const INSTRUMENT_SPECS: Record<string, ContractSpec> = {
     typicalSpreadPoints: 0.00012, // 1.2 pips
     commissionPerLotUSD: 6.0,
   },
+  'GBP/USD': {
+    symbol: 'GBP/USD',
+    name: 'British Pound vs US Dollar',
+    category: 'FOREX',
+    lotSize: 100000,
+    minLot: 0.01,
+    maxLot: 100.0,
+    lotStep: 0.01,
+    pipSize: 0.0001,
+    typicalSpreadPoints: 0.00016, // 1.6 pips
+    commissionPerLotUSD: 6.0,
+  },
+  'USD/JPY': {
+    symbol: 'USD/JPY',
+    name: 'US Dollar vs Japanese Yen',
+    category: 'FOREX',
+    lotSize: 100000,
+    minLot: 0.01,
+    maxLot: 100.0,
+    lotStep: 0.01,
+    pipSize: 0.01,
+    typicalSpreadPoints: 0.014, // 1.4 pips
+    commissionPerLotUSD: 6.0,
+  },
+  'AUD/USD': {
+    symbol: 'AUD/USD',
+    name: 'Australian Dollar vs US Dollar',
+    category: 'FOREX',
+    lotSize: 100000,
+    minLot: 0.01,
+    maxLot: 100.0,
+    lotStep: 0.01,
+    pipSize: 0.0001,
+    typicalSpreadPoints: 0.00014, // 1.4 pips
+    commissionPerLotUSD: 6.0,
+  },
+  'USD/CAD': {
+    symbol: 'USD/CAD',
+    name: 'US Dollar vs Canadian Dollar',
+    category: 'FOREX',
+    lotSize: 100000,
+    minLot: 0.01,
+    maxLot: 100.0,
+    lotStep: 0.01,
+    pipSize: 0.0001,
+    typicalSpreadPoints: 0.00015, // 1.5 pips
+    commissionPerLotUSD: 6.0,
+  },
 };
 
 export interface RiskConfig {
@@ -63,6 +111,8 @@ export interface RiskConfig {
   maxTotalDrawdownPercent: number; // Max total account drawdown allowed (e.g. 5.0%)
   maxOpenPositions: number; // e.g. 3
   maxConsecutiveLosses: number; // e.g. 3 losses triggers circuit breaker
+  maxDailyTrades: number; // Trade limit per session
+  maxEntriesPerSymbol: number; // Supports multiple entries / scaling in
   minRewardToRiskRatio: number; // e.g. 1.5R minimum
   maxAllowedSpreadPoints: number; // e.g. Max spread for Gold = 0.60
   killSwitchActive: boolean; // Emergency trade halt
@@ -75,6 +125,8 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   maxTotalDrawdownPercent: 5.0,
   maxOpenPositions: 3,
   maxConsecutiveLosses: 3,
+  maxDailyTrades: 10,
+  maxEntriesPerSymbol: 3,
   minRewardToRiskRatio: 1.5,
   maxAllowedSpreadPoints: 0.8,
   killSwitchActive: false,
@@ -92,6 +144,7 @@ export interface AccountState {
   peakEquity: number;
   consecutiveLosses: number;
   openPositionCount: number;
+  dailyTradeCount?: number;
 }
 
 export interface PositionSizeResult {
@@ -116,6 +169,53 @@ export interface TradeOrderCandidate {
   stopLoss: number;
   takeProfit: number;
   spreadPoints?: number;
+}
+
+/**
+ * Evaluates whether a position has reached the R-multiple trigger for Breakeven protection
+ */
+export function evaluateBreakevenUpdate(params: {
+  side: 'LONG' | 'SHORT';
+  entryPrice: number;
+  stopLoss: number;
+  currentPrice: number;
+  triggerR?: number;
+  spreadPoints?: number;
+  alreadyMoved?: boolean;
+}): { shouldMove: boolean; newStopLoss: number } {
+  const {
+    side,
+    entryPrice,
+    stopLoss,
+    currentPrice,
+    triggerR = 1.0,
+    spreadPoints = 0,
+    alreadyMoved = false,
+  } = params;
+
+  if (alreadyMoved) {
+    return { shouldMove: false, newStopLoss: stopLoss };
+  }
+
+  const initialRisk = Math.abs(entryPrice - stopLoss);
+  if (initialRisk <= 0) {
+    return { shouldMove: false, newStopLoss: stopLoss };
+  }
+
+  const buffer = spreadPoints * 0.25;
+  if (side === 'LONG') {
+    const targetPrice = entryPrice + initialRisk * triggerR;
+    if (currentPrice >= targetPrice && stopLoss < entryPrice) {
+      return { shouldMove: true, newStopLoss: entryPrice + buffer };
+    }
+  } else {
+    const targetPrice = entryPrice - initialRisk * triggerR;
+    if (currentPrice <= targetPrice && stopLoss > entryPrice) {
+      return { shouldMove: true, newStopLoss: entryPrice - buffer };
+    }
+  }
+
+  return { shouldMove: false, newStopLoss: stopLoss };
 }
 
 /**
@@ -150,6 +250,24 @@ export function evaluateOrderRisk(
     return {
       allowed: false,
       rejectReason: `Maximum open positions reached (${account.openPositionCount}/${config.maxOpenPositions}). Cannot open new position.`,
+      recommendedLots: 0,
+      riskAmountUSD: 0,
+      dollarRisk: 0,
+      stopDistance: 0,
+      rewardDistance: 0,
+      rewardToRiskRatio: 0,
+      estimatedCommissionUSD: 0,
+      estimatedSpreadCostUSD: 0,
+      estimatedSlippageUSD: 0,
+      totalTransactionCostUSD: 0,
+    };
+  }
+
+  // 2b. Daily Trade Limit
+  if ((account.dailyTradeCount ?? 0) >= config.maxDailyTrades) {
+    return {
+      allowed: false,
+      rejectReason: `Daily trade limit reached (${account.dailyTradeCount}/${config.maxDailyTrades}). Overtrading protection engaged.`,
       recommendedLots: 0,
       riskAmountUSD: 0,
       dollarRisk: 0,

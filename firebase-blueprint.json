@@ -1,0 +1,167 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated Apex Trader AI user profile and global safety guardrails",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["trader", "admin"] },
+        "activeEnvironment": { "type": "string", "enum": ["SIMULATION", "MT5_DEMO"] },
+        "emergencyTradingDisabled": { "type": "boolean" },
+        "liveTradingEnabled": { "type": "boolean" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "activeEnvironment", "emergencyTradingDisabled", "liveTradingEnabled"]
+    },
+    "TradingPreferences": {
+      "title": "TradingPreferences",
+      "description": "Persistent preferences for symbols, timeframes, strategies, and fixed position size",
+      "type": "object",
+      "properties": {
+        "symbols": { "type": "array", "items": { "type": "string" } },
+        "defaultSymbol": { "type": "string" },
+        "defaultTimeframe": { "type": "string" },
+        "enabledTimeframes": { "type": "array", "items": { "type": "string" } },
+        "botMode": { "type": "string", "enum": ["CLASSIC", "BRAIN"] },
+        "useHtfFilter": { "type": "boolean" },
+        "enableBreakeven": { "type": "boolean" },
+        "enableMultipleEntries": { "type": "boolean" },
+        "minBrainScore": { "type": "number" },
+        "sizingMode": { "type": "string", "enum": ["RISK_PERCENT", "FIXED_LOT"] },
+        "fixedPositionSize": { "type": "number" },
+        "riskPercentagePerTrade": { "type": "number" },
+        "emergencyTradingDisabled": { "type": "boolean" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["symbols", "defaultSymbol", "defaultTimeframe", "botMode", "sizingMode", "fixedPositionSize"]
+    },
+    "EnvironmentWorkspace": {
+      "title": "EnvironmentWorkspace",
+      "description": "Isolated workspace state for Simulation or MT5 Demo environment",
+      "type": "object",
+      "properties": {
+        "environment": { "type": "string", "enum": ["SIMULATION", "MT5_DEMO"] },
+        "accountLabel": { "type": "string" },
+        "brokerName": { "type": "string" },
+        "brokerServer": { "type": "string" },
+        "demoAccountNumber": { "type": "string" },
+        "accountState": { "type": "object" },
+        "riskConfig": { "type": "object" },
+        "botSettings": { "type": "object" },
+        "positions": { "type": "array" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["environment", "accountState", "riskConfig", "botSettings"]
+    },
+    "PriceAlertDoc": {
+      "title": "PriceAlertDoc",
+      "description": "User price alert configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "symbol": { "type": "string" },
+        "targetPrice": { "type": "number" },
+        "condition": { "type": "string" },
+        "status": { "type": "string" },
+        "note": { "type": "string" },
+        "oneShot": { "type": "boolean" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "symbol", "targetPrice", "condition", "status"]
+    },
+    "TradeJournalDoc": {
+      "title": "TradeJournalDoc",
+      "description": "Closed trade or MT5 Demo journal record scoped to environment with plan-vs-actual review fields",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "environment": { "type": "string", "enum": ["SIMULATION", "MT5_DEMO"] },
+        "symbol": { "type": "string" },
+        "side": { "type": "string", "enum": ["LONG", "SHORT"] },
+        "entryPrice": { "type": "number" },
+        "exitPrice": { "type": "number" },
+        "lots": { "type": "number" },
+        "netPnlUSD": { "type": "number" },
+        "exitTime": { "type": "number" },
+        "ticketId": { "type": "string" },
+        "plannedEntry": { "type": "number" },
+        "plannedSL": { "type": "number" },
+        "plannedTP": { "type": "number" },
+        "stressedCostEstimateUSD": { "type": "number" },
+        "processGrade": { "type": "string", "enum": ["FOLLOWED_PLAN", "MINOR_DEVIATION", "PROCESS_BREACH", "UNPLANNED"] },
+        "outcomeGrade": { "type": "string", "enum": ["WIN", "LOSS", "BREAKEVEN"] },
+        "processNotes": { "type": "string" }
+      },
+      "required": ["id", "environment", "symbol", "side", "lots"]
+    },
+    "TradeTicketDoc": {
+      "title": "TradeTicketDoc",
+      "description": "Evidence-backed APX trade proposal, stressed-stop risk review, explicit trader approval, and single-send lock",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "environment": { "type": "string", "enum": ["SIMULATION", "MT5_DEMO"] },
+        "adapterType": { "type": "string", "enum": ["SYNTHETIC_PAPER_MOCKED", "MT5_DEMO_EA"] },
+        "source": { "type": "string" },
+        "symbol": { "type": "string" },
+        "timeframe": { "type": "string" },
+        "side": { "type": "string", "enum": ["LONG", "SHORT"] },
+        "entryPrice": { "type": "number" },
+        "stopLoss": { "type": "number" },
+        "takeProfit": { "type": "number" },
+        "thesis": { "type": "string" },
+        "evidence": { "type": "array" },
+        "invalidation": { "type": "string" },
+        "createdAtMs": { "type": "number" },
+        "expiresAtMs": { "type": "number" },
+        "status": {
+          "type": "string",
+          "enum": ["PROPOSED", "RISK_PASS", "RISK_REJECT", "APPROVED", "EXECUTED", "EXPIRED", "CANCELLED"]
+        },
+        "liveTradingEnabled": { "type": "boolean" }
+      },
+      "required": [
+        "id",
+        "environment",
+        "symbol",
+        "side",
+        "entryPrice",
+        "stopLoss",
+        "takeProfit",
+        "status",
+        "liveTradingEnabled",
+        "createdAtMs",
+        "expiresAtMs"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Root user profile & global emergency trading guardrail"
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": "TradingPreferences",
+      "description": "Persistent user preferences for symbols, timeframes, strategies, and fixed lot sizing"
+    },
+    "/users/{userId}/environments/{envId}": {
+      "schema": "EnvironmentWorkspace",
+      "description": "Isolated Simulation and MT5 Demo account workspaces"
+    },
+    "/users/{userId}/alerts/{alertId}": {
+      "schema": "PriceAlertDoc",
+      "description": "User price alerts"
+    },
+    "/users/{userId}/journal/{entryId}": {
+      "schema": "TradeJournalDoc",
+      "description": "Environment-tagged trade journal history with plan-vs-actual review"
+    },
+    "/users/{userId}/tickets/{ticketId}": {
+      "schema": "TradeTicketDoc",
+      "description": "APX evidence-backed trade tickets and single-send execution audit records"
+    }
+  }
+}
